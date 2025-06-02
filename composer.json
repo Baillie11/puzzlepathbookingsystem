@@ -1,0 +1,13 @@
+{
+    "name": "puzzlepath/booking",
+    "description": "PuzzlePath Booking System with Stripe Integration",
+    "type": "wordpress-plugin",
+    "require": {
+        "stripe/stripe-php": "^10.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "PuzzlePath\\Booking\\": "src/"
+        }
+    }
+} 
