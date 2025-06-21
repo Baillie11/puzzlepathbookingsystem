@@ -1,491 +1,416 @@
 <?php
 /*
 Plugin Name: PuzzlePath Booking
-Description: Custom booking system for PuzzlePath events with Stripe, discount codes, and email confirmation.
-Version: 1.1.15
+Plugin URI: https://puzzlepath.com
+Description: Custom booking system for PuzzlePath events with discount codes and email confirmation.
+Version: 2.1.1
 Author: Andrew Baillie - Click eCommerce
+Author URI: https://clickecommerce.com
+Text Domain: puzzlepath-booking
 */
 
 defined('ABSPATH') or die('No script kiddies please!');
 
-// Include required files
-require_once(plugin_dir_path(__FILE__) . 'includes/settings.php');
-require_once(plugin_dir_path(__FILE__) . 'includes/payment-processing.php');
-
 // Register activation hook
-register_activation_hook(__FILE__, 'puzzlepath_booking_install');
-
-function puzzlepath_booking_install() {
+register_activation_hook(__FILE__, 'puzzlepath_activate_plugin');
+function puzzlepath_activate_plugin() {
     global $wpdb;
-    $charset_collate = $wpdb->get_charset_collate();
     
-    // Create tables
+    // Create events table with hosting type
     $table_events = $wpdb->prefix . 'pp_events';
+    $sql_events = "CREATE TABLE IF NOT EXISTS $table_events (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        title varchar(255) NOT NULL,
+        event_date datetime DEFAULT NULL,
+        location varchar(255) NOT NULL,
+        price decimal(10,2) NOT NULL,
+        seats int NOT NULL,
+        hosting_type enum('hosted', 'self_hosted') NOT NULL DEFAULT 'hosted',
+        created_at timestamp DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+
+    // Create bookings table with booking reference
     $table_bookings = $wpdb->prefix . 'pp_bookings';
+    $sql_bookings = "CREATE TABLE IF NOT EXISTS $table_bookings (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        event_id bigint(20) NOT NULL,
+        name varchar(255) NOT NULL,
+        email varchar(255) NOT NULL,
+        coupon_code varchar(50),
+        booking_status varchar(50) NOT NULL DEFAULT 'confirmed',
+        booking_reference varchar(20) UNIQUE NOT NULL,
+        created_at timestamp DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        FOREIGN KEY  (event_id) REFERENCES $table_events(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+
+    // Create coupons table
     $table_coupons = $wpdb->prefix . 'pp_coupons';
+    $sql_coupons = "CREATE TABLE IF NOT EXISTS $table_coupons (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        code varchar(50) NOT NULL UNIQUE,
+        discount_percent int NOT NULL,
+        max_uses int NOT NULL DEFAULT 0,
+        times_used int NOT NULL DEFAULT 0,
+        expires_at datetime DEFAULT NULL,
+        created_at timestamp DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-
-    $sql_events = "CREATE TABLE $table_events (
-        id INT NOT NULL AUTO_INCREMENT,
-        title VARCHAR(255) NOT NULL,
-        event_date DATETIME NOT NULL,
-        location VARCHAR(255),
-        price DECIMAL(10,2),
-        seats INT,
-        PRIMARY KEY(id)
-    ) $charset_collate;";
-
-    $sql_bookings = "CREATE TABLE $table_bookings (
-        id INT NOT NULL AUTO_INCREMENT,
-        event_id INT NOT NULL,
-        name VARCHAR(255),
-        email VARCHAR(255),
-        phone VARCHAR(20),
-        payment_status VARCHAR(50),
-        coupon_code VARCHAR(50),
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY(id)
-    ) $charset_collate;";
-
-    $sql_coupons = "CREATE TABLE $table_coupons (
-        id INT NOT NULL AUTO_INCREMENT,
-        code VARCHAR(50) UNIQUE,
-        discount_percent INT,
-        max_uses INT,
-        times_used INT DEFAULT 0,
-        expires_at DATETIME,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY(id)
-    ) $charset_collate;";
-
     dbDelta($sql_events);
     dbDelta($sql_bookings);
     dbDelta($sql_coupons);
 
-    // Create necessary pages
-    if (!get_option('puzzlepath_payment_page_id')) {
-        $payment_page = array(
-            'post_title'    => 'Payment',
-            'post_content'  => '',
-            'post_status'   => 'publish',
-            'post_type'     => 'page'
-        );
-        $payment_page_id = wp_insert_post($payment_page);
-        update_option('puzzlepath_payment_page_id', $payment_page_id);
-        update_post_meta($payment_page_id, '_wp_page_template', 'templates/payment-page.php');
-    }
-
-    if (!get_option('puzzlepath_confirmation_page_id')) {
-        $confirmation_page = array(
-            'post_title'    => 'Booking Confirmation',
-            'post_content'  => '',
-            'post_status'   => 'publish',
-            'post_type'     => 'page'
-        );
-        $confirmation_page_id = wp_insert_post($confirmation_page);
-        update_option('puzzlepath_confirmation_page_id', $confirmation_page_id);
-        update_post_meta($confirmation_page_id, '_wp_page_template', 'templates/confirmation-page.php');
-    }
+    // Clear any transients and caches
+    wp_cache_flush();
+    delete_transient('puzzlepath_plugin_installed');
 }
 
-// Register template files
-add_filter('template_include', 'puzzlepath_load_templates');
-function puzzlepath_load_templates($template) {
-    if (is_page()) {
-        $page_template = get_post_meta(get_the_ID(), '_wp_page_template', true);
-        
-        if ($page_template === 'templates/payment-page.php') {
-            return plugin_dir_path(__FILE__) . 'templates/payment-page.php';
-        }
-        
-        if ($page_template === 'templates/confirmation-page.php') {
-            return plugin_dir_path(__FILE__) . 'templates/confirmation-page.php';
-        }
-    }
-    return $template;
+// Register deactivation hook
+register_deactivation_hook(__FILE__, 'puzzlepath_deactivate_plugin');
+function puzzlepath_deactivate_plugin() {
+    // Clear any transients and caches
+    wp_cache_flush();
+    delete_transient('puzzlepath_plugin_installed');
 }
 
-add_action('admin_menu', 'puzzlepath_booking_admin_menu');
-function puzzlepath_booking_admin_menu() {
-    add_menu_page('PuzzlePath Events', 'PuzzlePath Events', 'manage_options', 'puzzlepath-events', 'puzzlepath_events_page');
-    add_submenu_page('puzzlepath-events', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
-}
-
-function puzzlepath_events_page() {
-    echo '<div class="wrap">';
-    echo '<h1>PuzzlePath Events</h1>';
-    
-    // Add shortcode notice box
-    echo '<div class="notice notice-info" style="padding: 15px; margin-bottom: 20px; border-left-color: #ffa500;">';
-    echo '<h3 style="margin-top: 0;">📝 How to Display the Booking Form</h3>';
-    echo '<p>Add this shortcode to any page or post where you want the booking form to appear:</p>';
-    echo '<code style="background: #f5f5f5; padding: 8px 12px; border-radius: 4px; display: inline-block; margin: 5px 0;">[puzzlepath_booking]</code>';
-    echo '</div>';
-    
+// Register uninstall hook
+register_uninstall_hook(__FILE__, 'puzzlepath_uninstall_plugin');
+function puzzlepath_uninstall_plugin() {
     global $wpdb;
-    $table_events = $wpdb->prefix . 'pp_events';
 
-    if (isset($_POST['pp_update_event'])) {
-        $wpdb->update(
-            $table_events,
-            [
-                'title' => sanitize_text_field($_POST['title']),
-                'event_date' => sanitize_text_field($_POST['event_date']),
-                'location' => sanitize_text_field($_POST['location']),
-                'price' => floatval($_POST['price']),
-                'seats' => intval($_POST['seats'])
-            ],
-            [ 'id' => intval($_POST['event_id']) ]
-        );
-        echo '<div class="updated"><p>Event updated successfully.</p></div>';
-    }
+    // Drop plugin tables
+    $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}pp_bookings");
+    $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}pp_coupons");
+    $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}pp_events");
 
-    if (isset($_GET['delete_event'])) {
-        $wpdb->delete($table_events, ['id' => intval($_GET['delete_event'])]);
-        echo '<div class="updated"><p>Event deleted successfully.</p></div>';
-    }
+    // Delete plugin options
+    delete_option('puzzlepath_email_template');
+    delete_option('puzzlepath_booking_page_id');
 
-    if (isset($_POST['pp_add_event'])) {
-        $wpdb->insert($table_events, [
-            'title' => sanitize_text_field($_POST['title']),
-            'event_date' => sanitize_text_field($_POST['event_date']),
-            'location' => sanitize_text_field($_POST['location']),
-            'price' => floatval($_POST['price']),
-            'seats' => intval($_POST['seats'])
-        ]);
-        echo '<div class="updated"><p>Event added successfully.</p></div>';
-    }
-
-    $events = $wpdb->get_results("SELECT * FROM $table_events ORDER BY event_date ASC");
-
-    echo '<form method="post">';
-    echo '<h2>Add New Event</h2>';
-    echo '<input type="text" name="title" placeholder="Event Title" required style="width: 100%; margin-bottom: 10px;" />';
-    echo '<input type="datetime-local" name="event_date" required style="width: 100%; margin-bottom: 10px;" />';
-    echo '<input type="text" name="location" placeholder="Location" style="width: 100%; margin-bottom: 10px;" />';
-    echo '<input type="number" name="price" placeholder="Price" step="0.01" style="width: 100%; margin-bottom: 10px;" />';
-    echo '<input type="number" name="seats" placeholder="Seats Available" style="width: 100%; margin-bottom: 10px;" />';
-    echo '<button type="submit" name="pp_add_event" class="button button-primary">Add Event</button>';
-    echo '</form>';
-
-    echo '<h2 style="margin-top: 40px;">Existing Events</h2>';
-    echo '<table class="widefat"><thead><tr><th>ID</th><th>Title</th><th>Date</th><th>Location</th><th>Price</th><th>Seats</th><th>Actions</th></tr></thead><tbody>';
-    foreach ($events as $event) {
-        echo '<tr>';
-        echo '<td>' . intval($event->id) . '</td>';
-        echo '<td>' . esc_html($event->title) . '</td>';
-        echo '<td>' . esc_html($event->event_date) . '</td>';
-        echo '<td>' . esc_html($event->location) . '</td>';
-        echo '<td>$' . number_format($event->price, 2) . '</td>';
-        echo '<td>' . intval($event->seats) . '</td>';
-        echo '<td>';
-        echo '<a href="?page=puzzlepath-events&edit_event=' . intval($event->id) . '" class="button">Edit</a> ';
-       echo '<a href="?page=puzzlepath-events&delete_event=' . intval($event->id) . '" class="button" onclick="return confirm(\'Are you sure you want to delete this event?\');">Delete</a>';
-        echo '</td>';
-        echo '</tr>';
-    }
-    echo '</tbody></table>';
-
-    if (isset($_GET['edit_event'])) {
-        $edit_id = intval($_GET['edit_event']);
-        $event = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_events WHERE id = %d", $edit_id));
-
-        if ($event) {
-            echo '<h2 style="margin-top: 40px;">Edit Event</h2>';
-            echo '<form method="post">';
-            echo '<input type="hidden" name="event_id" value="' . $event->id . '" />';
-            echo '<input type="text" name="title" value="' . esc_attr($event->title) . '" required style="width: 100%; margin-bottom: 10px;" />';
-            echo '<input type="datetime-local" name="event_date" value="' . esc_attr(date('Y-m-d\TH:i', strtotime($event->event_date))) . '" required style="width: 100%; margin-bottom: 10px;" />';
-            echo '<input type="text" name="location" value="' . esc_attr($event->location) . '" style="width: 100%; margin-bottom: 10px;" />';
-            echo '<input type="number" name="price" value="' . esc_attr($event->price) . '" step="0.01" style="width: 100%; margin-bottom: 10px;" />';
-            echo '<input type="number" name="seats" value="' . esc_attr($event->seats) . '" style="width: 100%; margin-bottom: 10px;" />';
-            echo '<button type="submit" name="pp_update_event" class="button button-primary">Update Event</button>';
-            echo '</form>';
-        }
-    }
-
-    echo '</div>';
+    // Clear any remaining transients and caches
+    wp_cache_flush();
+    delete_transient('puzzlepath_plugin_installed');
 }
 
-function puzzlepath_coupons_page() {
-    echo '<div class="wrap">';
-    echo '<h1>PuzzlePath Coupons</h1>';
-    
+// Function to update database structure
+function puzzlepath_update_database() {
     global $wpdb;
-    $table_coupons = $wpdb->prefix . 'pp_coupons';
-
-    if (isset($_POST['pp_add_coupon'])) {
-        $code = sanitize_text_field($_POST['code']);
-        $discount_percent = intval($_POST['discount_percent']);
-        $max_uses = intval($_POST['max_uses']);
-        $expires_at = sanitize_text_field($_POST['expires_at']);
-
-        // Check if coupon code already exists
-        $existing = $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table_coupons WHERE code = %s",
-            $code
-        ));
-
-        if ($existing) {
-            echo '<div class="error"><p>Error: Coupon code already exists.</p></div>';
-        } else {
-            $result = $wpdb->insert(
-                $table_coupons,
-                [
-                    'code' => $code,
-                    'discount_percent' => $discount_percent,
-                    'max_uses' => $max_uses,
-                    'expires_at' => $expires_at,
-                    'times_used' => 0
-                ],
-                ['%s', '%d', '%d', '%s', '%d']
-            );
-
-            if ($result === false) {
-                echo '<div class="error"><p>Error: Failed to add coupon. Please try again.</p></div>';
-            } else {
-                echo '<div class="updated"><p>Coupon added successfully.</p></div>';
-            }
-        }
-    }
-
-    if (isset($_GET['delete_coupon'])) {
-        $delete_id = intval($_GET['delete_coupon']);
-        $result = $wpdb->delete($table_coupons, ['id' => $delete_id], ['%d']);
-        
-        if ($result === false) {
-            echo '<div class="error"><p>Error: Failed to delete coupon.</p></div>';
-        } else {
-            echo '<div class="updated"><p>Coupon deleted successfully.</p></div>';
-        }
-    }
-
-    echo '<form method="post">';
-    echo '<h2>Add New Coupon</h2>';
-
-    echo '<label for="code"><strong>Coupon Code:</strong><br><small>What users will enter at checkout (e.g. PUZZLE10)</small></label><br>';
-    echo '<input type="text" name="code" id="code" required style="width: 100%; margin-bottom: 15px;" />';
-
-    echo '<label for="discount_percent"><strong>Discount Percentage:</strong><br><small>How much this coupon will take off (e.g. 10 for 10%)</small></label><br>';
-    echo '<input type="number" name="discount_percent" id="discount_percent" min="1" max="100" required style="width: 100%; margin-bottom: 15px;" />';
-
-    echo '<label for="max_uses"><strong>Maximum Uses:</strong><br><small>Total number of times this coupon can be used</small></label><br>';
-    echo '<input type="number" name="max_uses" id="max_uses" required style="width: 100%; margin-bottom: 15px;" />';
-
-    echo '<label for="expires_at"><strong>Expiry Date:</strong><br><small>Date/time after which the coupon will no longer be valid</small></label><br>';
-    echo '<input type="datetime-local" name="expires_at" id="expires_at" required style="width: 100%; margin-bottom: 20px;" />';
-
-    echo '<button type="submit" name="pp_add_coupon" class="button button-primary">Add Coupon</button>';
-    echo '</form>';
-
-    echo '<h2 style="margin-top: 40px;">Existing Coupons</h2>';
-    $coupons = $wpdb->get_results("SELECT * FROM $table_coupons ORDER BY created_at DESC");
     
-    if ($coupons) {
-        echo '<table class="widefat"><thead><tr><th>Code</th><th>Discount</th><th>Uses</th><th>Max Uses</th><th>Expires</th><th>Actions</th></tr></thead><tbody>';
-        foreach ($coupons as $coupon) {
-            echo '<tr>';
-            echo '<td>' . esc_html($coupon->code) . '</td>';
-            echo '<td>' . esc_html($coupon->discount_percent) . '%</td>';
-            echo '<td>' . esc_html($coupon->times_used) . '</td>';
-            echo '<td>' . esc_html($coupon->max_uses) . '</td>';
-            echo '<td>' . esc_html($coupon->expires_at) . '</td>';
-            echo '<td>';
-            echo '<a href="?page=puzzlepath-coupons&delete_coupon=' . intval($coupon->id) . '" class="button" onclick="return confirm(\'Are you sure you want to delete this coupon?\');">Delete</a>';
-            echo '</td>';
-            echo '</tr>';
-        }
-        echo '</tbody></table>';
-    } else {
-        echo '<p>No coupons found.</p>';
+    // Check if hosting_type column exists in events table
+    $column_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'hosting_type'");
+    if (empty($column_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN hosting_type ENUM('hosted', 'self_hosted') NOT NULL DEFAULT 'hosted'");
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events MODIFY COLUMN event_date datetime DEFAULT NULL");
     }
     
-    echo '</div>';
-}
-
-// Enqueue JS for AJAX coupon validation
-add_action('wp_enqueue_scripts', function() {
-    wp_enqueue_script('puzzlepath-booking-js', plugin_dir_url(__FILE__) . 'puzzlepath-booking.js', array('jquery'), '1.1.11', true);
-    wp_localize_script('puzzlepath-booking-js', 'puzzlepathBooking', array(
-        'ajax_url' => admin_url('admin-ajax.php'),
-        'nonce' => wp_create_nonce('pp_apply_coupon')
-    ));
-});
-
-// AJAX handler for coupon validation
-add_action('wp_ajax_pp_apply_coupon', 'pp_apply_coupon_ajax');
-add_action('wp_ajax_nopriv_pp_apply_coupon', 'pp_apply_coupon_ajax');
-function pp_apply_coupon_ajax() {
-    try {
-        // Prevent any unwanted output
-        @ob_clean();
-        
-        // Verify nonce
-        if (!check_ajax_referer('pp_apply_coupon', 'nonce', false)) {
-            wp_send_json_error(['message' => 'Security check failed.']);
-            exit;
-        }
-
-        global $wpdb;
-        $code = isset($_POST['coupon']) ? sanitize_text_field($_POST['coupon']) : '';
-        
-        if (empty($code)) {
-            wp_send_json_error(['message' => 'Please enter a coupon code.']);
-            exit;
-        }
-
-        $coupon = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}pp_coupons WHERE code = %s AND (expires_at > NOW() OR expires_at IS NULL) AND (times_used < max_uses OR max_uses = 0)",
-            $code
-        ));
-
-        if ($wpdb->last_error) {
-            wp_send_json_error(['message' => 'Database error: ' . $wpdb->last_error]);
-            exit;
-        }
-
-        if ($coupon) {
-            wp_send_json_success([
-                'message' => 'Coupon applied! ' . intval($coupon->discount_percent) . '% discount.',
-                'discount_percent' => intval($coupon->discount_percent)
-            ]);
-        } else {
-            wp_send_json_error(['message' => 'Invalid or expired coupon code.']);
-        }
-    } catch (Exception $e) {
-        wp_send_json_error(['message' => 'Server error: ' . $e->getMessage()]);
+    // Check if booking_reference column exists in bookings table
+    $column_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_bookings LIKE 'booking_reference'");
+    if (empty($column_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_bookings ADD COLUMN booking_reference varchar(20) UNIQUE NOT NULL DEFAULT ''");
     }
-    exit;
+}
+add_action('plugins_loaded', 'puzzlepath_update_database');
+
+// Function to generate unique booking reference
+function puzzlepath_generate_booking_reference() {
+    global $wpdb;
+    
+    do {
+        $reference = strtoupper(substr(md5(uniqid(rand(), true)), 0, 8));
+        $exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}pp_bookings WHERE booking_reference = %s",
+            $reference
+        ));
+    } while ($exists > 0);
+    
+    return $reference;
 }
 
-add_shortcode('puzzlepath_booking', 'puzzlepath_booking_form');
-function puzzlepath_booking_form() {
-    if (!isset($_POST['pp_submit_booking'])) {
-        ob_start(); ?>
-        <form method="post" class="puzzlepath-booking-form">
-            <label for="event">Select Event:</label>
-            <select name="event" id="event"><?php puzzlepath_render_event_options(); ?></select><br>
-            <input type="text" name="name" placeholder="Your Name" required><br>
-            <input type="email" name="email" placeholder="Your Email" required><br>
-            <input type="tel" name="phone" placeholder="Your Contact Number" required><br>
-            <div style="display:flex;gap:8px;align-items:center;">
-                <input type="text" name="coupon" id="pp-coupon" placeholder="Coupon Code (Optional)" style="flex:1;">
-                <button type="button" id="pp-apply-coupon" style="background:#ffa500;color:#fff;border:none;padding:10px 16px;border-radius:6px;cursor:pointer;">Apply</button>
-            </div>
-            <div id="pp-coupon-feedback" style="min-height:24px;margin-bottom:8px;color:#d2691e;"></div>
-            <button type="submit" name="pp_submit_booking">Book Now</button>
-        </form>
-        <style>
-            .puzzlepath-booking-form {
-                background-color: #fff5e6;
-                padding: 20px;
-                border-radius: 12px;
-                box-shadow: 0 0 10px rgba(255, 149, 0, 0.3);
-                max-width: 400px;
-                margin: 20px auto;
-                font-family: 'Arial', sans-serif;
-            }
-            .puzzlepath-booking-form input,
-            .puzzlepath-booking-form select {
-                width: 100%;
-                padding: 10px;
-                margin: 8px 0;
-                border: 2px solid #ffa500;
-                border-radius: 6px;
-                background: #fff;
-            }
-            .puzzlepath-booking-form button[type="submit"] {
-                background-color: #ff8800;
-                color: white;
-                border: none;
-                padding: 12px;
-                font-size: 16px;
-                border-radius: 6px;
-                cursor: pointer;
-                transition: background 0.3s;
-            }
-            .puzzlepath-booking-form button[type="submit"]:hover {
-                background-color: #e67600;
-            }
-        </style>
-        <?php return ob_get_clean();
-    } else {
-        // Handle form submission
-        global $wpdb;
-        $table_bookings = $wpdb->prefix . 'pp_bookings';
-        $table_events = $wpdb->prefix . 'pp_events';
-        
-        $event_id = intval($_POST['event']);
-        $name = sanitize_text_field($_POST['name']);
-        $email = sanitize_email($_POST['email']);
-        $phone = sanitize_text_field($_POST['phone']);
-        $coupon_code = isset($_POST['coupon']) ? sanitize_text_field($_POST['coupon']) : '';
-        
-        // Verify event exists and has available seats
-        $event = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM $table_events WHERE id = %d",
-            $event_id
-        ));
-        
-        if (!$event) {
-            return '<div class="error">Error: Invalid event selected.</div>';
+// If the booking page option is not set, create the page
+function puzzlepath_create_booking_page_if_needed() {
+    if (get_option('puzzlepath_booking_page_id')) {
+        $page = get_post(get_option('puzzlepath_booking_page_id'));
+        if($page && $page->post_status === 'publish') {
+            return; // Page exists and is published
         }
-        
-        // Check if coupon is valid if provided
-        if (!empty($coupon_code)) {
-            $coupon = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$wpdb->prefix}pp_coupons WHERE code = %s AND (expires_at > NOW() OR expires_at IS NULL) AND (times_used < max_uses OR max_uses = 0)",
-                $coupon_code
-            ));
-            
-            if (!$coupon) {
-                return '<div class="error">Error: Invalid or expired coupon code.</div>';
-            }
+    }
+
+    $page_data = array(
+        'post_title'    => 'PuzzlePath Booking',
+        'post_content'  => '[puzzlepath_booking_form]',
+        'post_status'   => 'publish',
+        'post_author'   => 1,
+        'post_type'     => 'page',
+        'post_name'     => 'puzzlepath-booking-page'
+    );
+
+    $page_id = wp_insert_post($page_data);
+    if ($page_id) {
+        update_option('puzzlepath_booking_page_id', $page_id);
+    }
+}
+add_action('admin_init', 'puzzlepath_create_booking_page_if_needed');
+
+// Add action to handle form submission
+add_action('init', 'puzzlepath_handle_booking_submission');
+function puzzlepath_handle_booking_submission() {
+    if (!isset($_POST['submit_booking']) || !isset($_POST['puzzlepath_booking_nonce']) || !wp_verify_nonce($_POST['puzzlepath_booking_nonce'], 'puzzlepath_booking_form_action')) {
+        return;
+    }
+
+    global $wpdb;
+    
+    $event_id = intval($_POST['event_id']);
+    $name = sanitize_text_field($_POST['name']);
+    $email = sanitize_email($_POST['email']);
+    $coupon = !empty($_POST['coupon']) ? sanitize_text_field($_POST['coupon']) : null;
+    
+    $event = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pp_events WHERE id = %d", $event_id));
+
+    $redirect_url = wp_get_referer();
+    if (!$redirect_url) {
+        $booking_page_id = get_option('puzzlepath_booking_page_id');
+        if ($booking_page_id) {
+            $redirect_url = get_permalink($booking_page_id);
+        } else {
+            $redirect_url = home_url('/');
         }
+    }
+
+    if ($event && $event->seats > 0) {
+        $booking_reference = puzzlepath_generate_booking_reference();
         
-        // Insert booking
         $result = $wpdb->insert(
-            $table_bookings,
-            [
+            $wpdb->prefix . 'pp_bookings',
+            array(
                 'event_id' => $event_id,
                 'name' => $name,
                 'email' => $email,
-                'phone' => $phone,
-                'payment_status' => 'pending',
-                'coupon_code' => $coupon_code
-            ],
-            ['%d', '%s', '%s', '%s', '%s', '%s']
+                'coupon_code' => $coupon,
+                'booking_status' => 'confirmed',
+                'booking_reference' => $booking_reference
+            )
         );
-        
-        if ($result === false) {
-            return '<div class="error">Error: Failed to create booking. Please try again.</div>';
+
+        if ($result) {
+            $booking_id = $wpdb->insert_id;
+            $wpdb->query($wpdb->prepare("UPDATE {$wpdb->prefix}pp_events SET seats = seats - 1 WHERE id = %d", $event_id));
+            if ($coupon) {
+                $wpdb->query($wpdb->prepare("UPDATE {$wpdb->prefix}pp_coupons SET times_used = times_used + 1 WHERE code = %s", $coupon));
+            }
+            puzzlepath_send_confirmation_email($booking_id, $event, $name, $email, $coupon, $booking_reference);
+            $redirect_url = add_query_arg(['booking_status' => 'success', 'ref' => $booking_reference], $redirect_url);
+        } else {
+            $redirect_url = add_query_arg('booking_status', 'dberror', $redirect_url);
         }
-        
-        // Update coupon usage if applicable
-        if (!empty($coupon_code) && $coupon) {
-            $wpdb->update(
-                $wpdb->prefix . 'pp_coupons',
-                ['times_used' => $coupon->times_used + 1],
-                ['id' => $coupon->id],
-                ['%d'],
-                ['%d']
-            );
-        }
-        
-        // Redirect to payment page with booking_id and name
-        $booking_id = $wpdb->insert_id;
-        $redirect_url = site_url('/payment/?booking_id=' . $booking_id . '&name=' . urlencode($name));
-        wp_redirect($redirect_url);
-        exit;
+    } else {
+        $redirect_url = add_query_arg('booking_status', 'error', $redirect_url);
     }
+
+    wp_safe_redirect($redirect_url);
+    exit;
 }
 
-function puzzlepath_render_event_options() {
+// Add shortcode for booking form
+add_shortcode('puzzlepath_booking_form', 'puzzlepath_booking_form');
+function puzzlepath_booking_form() {
     global $wpdb;
     $table_events = $wpdb->prefix . 'pp_events';
-    $events = $wpdb->get_results("SELECT * FROM $table_events ORDER BY event_date ASC");
-    foreach ($events as $event) {
-        echo '<option value="' . esc_attr($event->id) . '">' . esc_html($event->title . ' - ' . date('M j, Y g:i a', strtotime($event->event_date))) . '</option>';
+    
+    $message = '';
+    if (isset($_GET['booking_status'])) {
+        if ($_GET['booking_status'] === 'success' && isset($_GET['ref'])) {
+            $ref = sanitize_text_field($_GET['ref']);
+            $message = '<div class="booking-success"><p>✅ Booking confirmed! Your reference is <strong>' . esc_html($ref) . '</strong>. An email is on its way.</p></div>';
+        } elseif ($_GET['booking_status'] === 'dberror') {
+            $message = '<div class="booking-error"><p>❌ Database error. Could not save your booking.</p></div>';
+        } elseif ($_GET['booking_status'] === 'error') {
+            $message = '<div class="booking-error"><p>❌ Invalid event or event is fully booked.</p></div>';
+        }
     }
-} 
+    
+    $events = $wpdb->get_results("SELECT * FROM $table_events WHERE seats > 0 ORDER BY event_date ASC, title ASC");
+    
+    ob_start();
+    ?>
+    <div class="puzzlepath-booking-form">
+        <h2>Book an Event</h2>
+        
+        <?php echo $message; ?>
+
+        <form method="post" action="">
+            <?php wp_nonce_field('puzzlepath_booking_form_action', 'puzzlepath_booking_nonce'); ?>
+            <div class="form-group">
+                <label for="event">Select Event:</label>
+                <select name="event_id" id="event" required>
+                    <option value="">Choose an event...</option>
+                    <?php foreach ($events as $event): ?>
+                        <option value="<?php echo esc_attr($event->id); ?>" data-price="<?php echo esc_attr($event->price); ?>" data-hosting="<?php echo esc_attr($event->hosting_type); ?>">
+                            <?php echo esc_html($event->title); ?> 
+                            (<?php echo $event->hosting_type === 'hosted' ? 'Hosted' : 'Self Hosted (App)'; ?>)
+                            <?php if ($event->hosting_type === 'hosted' && $event->event_date): ?>
+                                - <?php echo date('F j, Y g:i a', strtotime($event->event_date)); ?>
+                            <?php endif; ?>
+                            - $<?php echo number_format($event->price, 2); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="name">Your Name:</label>
+                <input type="text" name="name" id="name" required>
+            </div>
+            <div class="form-group">
+                <label for="email">Your Email:</label>
+                <input type="email" name="email" id="email" required>
+            </div>
+            <div class="form-group coupon-group">
+                <div class="coupon-input">
+                    <label for="coupon">Coupon Code (optional):</label>
+                    <input type="text" name="coupon" id="coupon">
+                </div>
+                <button type="button" id="apply-coupon-btn">Apply</button>
+            </div>
+            <div id="coupon-result"></div>
+
+            <div id="price-display" style="display:none;">
+                <h4>Price Summary</h4>
+                <p class="price-line price-original-line">Original Price: <span class="price-original"></span></p>
+                <p class="price-line price-discount-line" style="display:none;">Discount: <span class="price-discount"></span></p>
+                <p class="price-line price-final-line"><strong>Total Price:</strong> <span class="price-final"></span></p>
+            </div>
+
+            <button type="submit" name="submit_booking">Book Now</button>
+        </form>
+    </div>
+    <style>
+        .puzzlepath-booking-form { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #FFA500; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #333; }
+        .form-group select, .form-group input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background-color: white; }
+        .coupon-group { display: flex; align-items: flex-end; gap: 10px; }
+        .coupon-input { flex-grow: 1; }
+        #apply-coupon-btn { padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; height: 35px; }
+        #apply-coupon-btn:hover { background: #0056b3; }
+        #apply-coupon-btn:disabled { background: #cccccc; }
+        #coupon-result { margin: 10px 0; padding: 10px; border-radius: 4px; display: none; }
+        #coupon-result.success { background-color: #d4edda; color: #155724; }
+        #coupon-result.error { background-color: #f8d7da; color: #721c24; }
+        #price-display { margin-top: 20px; padding: 15px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; }
+        #price-display h4 { margin-top: 0; }
+        .price-line { margin: 5px 0; display: flex; justify-content: space-between; }
+        .price-final-line { font-size: 1.1em; border-top: 1px solid #ccc; padding-top: 10px; margin-top: 10px; }
+        button[type="submit"] { background: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 20px; }
+        button[type="submit"]:hover { background: #218838; }
+        .booking-success { background: #d4edda; color: #155724; padding: 15px; border-radius: 4px; margin-bottom: 20px; border: 1px solid #c3e6cb; }
+        .booking-error { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 4px; margin-bottom: 20px; border: 1px solid #f5c6cb; }
+    </style>
+    <?php
+    
+    return ob_get_clean();
+}
+
+// Function to send confirmation email
+function puzzlepath_send_confirmation_email($booking_id, $event, $name, $email, $coupon = null, $booking_reference = null) {
+    $subject = 'Booking Confirmation - ' . $event->title;
+    
+    $discount_amount = 0;
+    if ($coupon) {
+        global $wpdb;
+        $coupon_data = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pp_coupons WHERE code = %s", $coupon));
+        if ($coupon_data) {
+            $discount_amount = ($event->price * $coupon_data->discount_percent) / 100;
+        }
+    }
+    $final_price = $event->price - $discount_amount;
+    
+    $message_body = "Dear {$name},\n\n";
+    $message_body .= "Thank you for your booking!\n\n";
+    $message_body .= "Booking Details:\n";
+    $message_body .= "Reference: {$booking_reference}\n";
+    $message_body .= "Event: {$event->title}\n";
+    if ($event->hosting_type === 'hosted' && $event->event_date) {
+        $message_body .= "Date: " . date('F j, Y g:i a', strtotime($event->event_date)) . "\n";
+    }
+    $message_body .= "Location: {$event->location}\n";
+    $message_body .= "Price: $" . number_format($event->price, 2) . "\n";
+    
+    if ($coupon) {
+        $message_body .= "Coupon Used: {$coupon}\n";
+        $message_body .= "Discount: -$" . number_format($discount_amount, 2) . "\n";
+        $message_body .= "Final Price: $" . number_format($final_price, 2) . "\n";
+    }
+    
+    $message_body .= "\nWe look forward to seeing you!\n\n";
+    $message_body .= "Regards,\nPuzzlePath Team";
+    
+    $headers = array('Content-Type: text/plain; charset=UTF-8');
+    
+    wp_mail($email, $subject, $message_body, $headers);
+}
+
+// Enqueue scripts and styles
+function puzzlepath_booking_scripts() {
+    wp_enqueue_script('puzzlepath-booking', plugin_dir_url(__FILE__) . 'js/booking-form.js', array('jquery'), '1.0.2', true);
+    wp_localize_script('puzzlepath-booking', 'puzzlepath_ajax', array(
+        'ajax_url' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('puzzlepath-coupon-nonce')
+    ));
+}
+add_action('wp_enqueue_scripts', 'puzzlepath_booking_scripts');
+
+// AJAX handler for applying coupon
+function puzzlepath_apply_coupon_callback() {
+    check_ajax_referer('puzzlepath-coupon-nonce', 'nonce');
+
+    global $wpdb;
+    $coupon_code = sanitize_text_field($_POST['coupon_code']);
+    $event_id = intval($_POST['event_id']);
+
+    if (empty($coupon_code) || empty($event_id)) {
+        wp_send_json_error(array('message' => 'Please select an event and enter a coupon code.'));
+    }
+
+    // Get event price
+    $event = $wpdb->get_row($wpdb->prepare("SELECT price FROM {$wpdb->prefix}pp_events WHERE id = %d", $event_id));
+    if (!$event) {
+        wp_send_json_error(array('message' => 'Invalid event.'));
+    }
+    $original_price = (float) $event->price;
+
+    // Get coupon details
+    $coupon = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pp_coupons WHERE code = %s", $coupon_code));
+    
+    // Validate coupon
+    if (!$coupon) {
+        wp_send_json_error(array('message' => 'Invalid coupon code.'));
+    }
+    if ($coupon->expires_at && strtotime($coupon->expires_at) < time()) {
+        wp_send_json_error(array('message' => 'This coupon has expired.'));
+    }
+    if ($coupon->max_uses > 0 && $coupon->times_used >= $coupon->max_uses) {
+        wp_send_json_error(array('message' => 'This coupon has reached its usage limit.'));
+    }
+
+    $discount_percent = (int) $coupon->discount_percent;
+    $discount_amount = ($original_price * $discount_percent) / 100;
+    $new_price = $original_price - $discount_amount;
+
+    wp_send_json_success(array(
+        'original_price' => number_format($original_price, 2),
+        'discount_amount' => number_format($discount_amount, 2),
+        'new_price' => number_format($new_price, 2),
+        'discount_percent' => $discount_percent,
+        'message' => "Success! {$discount_percent}% discount applied."
+    ));
+}
+add_action('wp_ajax_puzzlepath_apply_coupon', 'puzzlepath_apply_coupon_callback');
+add_action('wp_ajax_nopriv_puzzlepath_apply_coupon', 'puzzlepath_apply_coupon_callback');
+
+// Include required files
+require_once(plugin_dir_path(__FILE__) . 'includes/settings.php');
+require_once(plugin_dir_path(__FILE__) . 'includes/events.php');
+require_once(plugin_dir_path(__FILE__) . 'includes/coupons.php');

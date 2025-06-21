@@ -1,139 +1,69 @@
 <?php
-// Add settings page to the menu
-add_action('admin_menu', 'puzzlepath_add_settings_page');
-function puzzlepath_add_settings_page() {
-    add_submenu_page(
-        'puzzlepath-events',
-        'Settings',
-        'Settings',
+defined('ABSPATH') or die('No script kiddies please!');
+
+// Add menu page for settings
+add_action('admin_menu', 'puzzlepath_add_admin_menu');
+function puzzlepath_add_admin_menu() {
+    add_menu_page(
+        'PuzzlePath Booking',
+        'PuzzlePath',
         'manage_options',
-        'puzzlepath-settings',
-        'puzzlepath_render_settings_page'
+        'puzzlepath-booking',
+        'puzzlepath_settings_page',
+        'dashicons-calendar-alt'
     );
 }
 
 // Register settings
 add_action('admin_init', 'puzzlepath_register_settings');
 function puzzlepath_register_settings() {
-    register_setting('puzzlepath_settings', 'puzzlepath_stripe_publishable_key');
-    register_setting('puzzlepath_settings', 'puzzlepath_stripe_secret_key');
-    register_setting('puzzlepath_settings', 'puzzlepath_confirmation_page_id');
+    register_setting('puzzlepath_settings', 'puzzlepath_email_template');
 }
 
-// Render settings page
-function puzzlepath_render_settings_page() {
-    // Create payment and confirmation pages if they don't exist
-    $payment_page_id = get_option('puzzlepath_payment_page_id');
-    if (!$payment_page_id) {
-        $payment_page = array(
-            'post_title'    => 'Payment',
-            'post_content'  => '',
-            'post_status'   => 'publish',
-            'post_type'     => 'page'
-        );
-        $payment_page_id = wp_insert_post($payment_page);
-        update_option('puzzlepath_payment_page_id', $payment_page_id);
-        update_post_meta($payment_page_id, '_wp_page_template', 'templates/payment-page.php');
-    }
-
-    $confirmation_page_id = get_option('puzzlepath_confirmation_page_id');
-    if (!$confirmation_page_id) {
-        $confirmation_page = array(
-            'post_title'    => 'Booking Confirmation',
-            'post_content'  => '',
-            'post_status'   => 'publish',
-            'post_type'     => 'page'
-        );
-        $confirmation_page_id = wp_insert_post($confirmation_page);
-        update_option('puzzlepath_confirmation_page_id', $confirmation_page_id);
-        update_post_meta($confirmation_page_id, '_wp_page_template', 'templates/confirmation-page.php');
+// Settings page content
+function puzzlepath_settings_page() {
+    if (!current_user_can('manage_options')) {
+        return;
     }
     ?>
     <div class="wrap">
-        <h1>PuzzlePath Booking Settings</h1>
-        
-        <form method="post" action="options.php">
-            <?php settings_fields('puzzlepath_settings'); ?>
-            
+        <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+        <form action="options.php" method="post">
+            <?php
+            settings_fields('puzzlepath_settings');
+            do_settings_sections('puzzlepath_settings');
+            ?>
             <table class="form-table">
                 <tr>
-                    <th scope="row">
-                        <label for="puzzlepath_stripe_publishable_key">Stripe Publishable Key</label>
-                    </th>
+                    <th scope="row">Email Template</th>
                     <td>
-                        <input type="text" id="puzzlepath_stripe_publishable_key" 
-                               name="puzzlepath_stripe_publishable_key" 
-                               value="<?php echo esc_attr(get_option('puzzlepath_stripe_publishable_key')); ?>" 
-                               class="regular-text">
-                        <p class="description">Your Stripe publishable key (starts with 'pk_')</p>
-                    </td>
-                </tr>
-                
-                <tr>
-                    <th scope="row">
-                        <label for="puzzlepath_stripe_secret_key">Stripe Secret Key</label>
-                    </th>
-                    <td>
-                        <input type="password" id="puzzlepath_stripe_secret_key" 
-                               name="puzzlepath_stripe_secret_key" 
-                               value="<?php echo esc_attr(get_option('puzzlepath_stripe_secret_key')); ?>" 
-                               class="regular-text">
-                        <p class="description">Your Stripe secret key (starts with 'sk_')</p>
+                        <?php
+                        wp_editor(
+                            get_option('puzzlepath_email_template', 'Dear {name},\n\nThank you for your booking!\n\nBooking Details:\nEvent: {event_title}\nDate: {event_date}\nPrice: {price}\n\nRegards,\nPuzzlePath Team'),
+                            'puzzlepath_email_template',
+                            array(
+                                'textarea_name' => 'puzzlepath_email_template',
+                                'textarea_rows' => 10,
+                                'media_buttons' => false
+                            )
+                        );
+                        ?>
+                        <p class="description">Available placeholders: {name}, {event_title}, {event_date}, {price}</p>
                     </td>
                 </tr>
             </table>
-
-            <h2>Page Settings</h2>
-            <p>The following pages have been created automatically:</p>
-            
-            <table class="form-table">
-                <tr>
-                    <th scope="row">Payment Page</th>
-                    <td>
-                        <a href="<?php echo get_permalink($payment_page_id); ?>" target="_blank">
-                            <?php echo get_the_title($payment_page_id); ?>
-                        </a>
-                        <p class="description">This page handles the payment process.</p>
-                    </td>
-                </tr>
-                
-                <tr>
-                    <th scope="row">Confirmation Page</th>
-                    <td>
-                        <a href="<?php echo get_permalink($confirmation_page_id); ?>" target="_blank">
-                            <?php echo get_the_title($confirmation_page_id); ?>
-                        </a>
-                        <p class="description">This page shows the booking confirmation after successful payment.</p>
-                    </td>
-                </tr>
-            </table>
-
-            <h2>Test Your Configuration</h2>
-            <p>Use these test card numbers to verify your Stripe integration:</p>
-            <table class="widefat" style="max-width: 600px; margin-top: 10px;">
-                <thead>
-                    <tr>
-                        <th>Card Number</th>
-                        <th>Description</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><code>4242 4242 4242 4242</code></td>
-                        <td>Successful payment</td>
-                    </tr>
-                    <tr>
-                        <td><code>4000 0000 0000 0002</code></td>
-                        <td>Declined payment</td>
-                    </tr>
-                </tbody>
-            </table>
-            <p class="description">
-                For test cards, use any future expiration date and any three-digit CVC.
-            </p>
-
             <?php submit_button(); ?>
         </form>
+        
+        <h2>Shortcode</h2>
+        <p>Use this shortcode to display the booking form on any page or post:</p>
+        <code>[puzzlepath_booking_form]</code>
+        
+        <h2>Quick Links</h2>
+        <p>
+            <a href="<?php echo admin_url('admin.php?page=puzzlepath-events'); ?>" class="button">Manage Events</a>
+            <a href="<?php echo admin_url('admin.php?page=puzzlepath-coupons'); ?>" class="button">Manage Coupons</a>
+        </p>
     </div>
     <?php
 } 
