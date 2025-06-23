@@ -1,167 +1,125 @@
 <?php
 defined('ABSPATH') or die('No script kiddies please!');
 
-// Add submenu page for coupons
-add_action('admin_menu', 'puzzlepath_add_coupons_menu');
-function puzzlepath_add_coupons_menu() {
-    add_submenu_page(
-        'puzzlepath-booking',
-        'Coupons',
-        'Coupons',
-        'manage_options',
-        'puzzlepath-coupons',
-        'puzzlepath_coupons_page'
-    );
-}
+// The admin menu for this page is now registered in the main plugin file.
 
-// Coupons page content
+/**
+ * Display the main page for managing coupons.
+ */
 function puzzlepath_coupons_page() {
-    if (!current_user_can('manage_options')) {
-        return;
-    }
-
     global $wpdb;
     $table_name = $wpdb->prefix . 'pp_coupons';
 
-    // Handle form submission
-    if (isset($_POST['submit_coupon'])) {
+    // Handle form submissions for adding/editing coupons
+    if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['puzzlepath_coupon_nonce'])) {
+        if (!wp_verify_nonce($_POST['puzzlepath_coupon_nonce'], 'puzzlepath_save_coupon')) {
+            wp_die('Security check failed.');
+        }
+
+        $id = isset($_POST['coupon_id']) ? intval($_POST['coupon_id']) : 0;
         $code = sanitize_text_field($_POST['code']);
         $discount_percent = intval($_POST['discount_percent']);
         $max_uses = intval($_POST['max_uses']);
         $expires_at = !empty($_POST['expires_at']) ? sanitize_text_field($_POST['expires_at']) : null;
 
-        $wpdb->insert(
-            $table_name,
-            [
-                'code' => $code,
-                'discount_percent' => $discount_percent,
-                'max_uses' => $max_uses,
-                'expires_at' => $expires_at
-            ],
-            ['%s', '%d', '%d', $expires_at ? '%s' : null]
-        );
+        $data = [
+            'code' => $code,
+            'discount_percent' => $discount_percent,
+            'max_uses' => $max_uses,
+            'expires_at' => $expires_at,
+        ];
 
-        echo '<div class="updated"><p>Coupon added successfully!</p></div>';
+        if ($id > 0) {
+            $wpdb->update($table_name, $data, ['id' => $id]);
+        } else {
+            $wpdb->insert($table_name, $data);
+        }
+
+        wp_redirect(admin_url('admin.php?page=puzzlepath-coupons&message=1'));
+        exit;
     }
 
-    // Handle delete action
-    if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id'])) {
-        $id = intval($_GET['id']);
-        $wpdb->delete($table_name, ['id' => $id], ['%d']);
-        echo '<div class="updated"><p>Coupon deleted successfully!</p></div>';
+    // Handle coupon deletion
+    if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['coupon_id'])) {
+        if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'puzzlepath_delete_coupon_' . $_GET['coupon_id'])) {
+            wp_die('Security check failed.');
+        }
+        $id = intval($_GET['coupon_id']);
+        $wpdb->delete($table_name, ['id' => $id]);
+        wp_redirect(admin_url('admin.php?page=puzzlepath-coupons&message=2'));
+        exit;
     }
 
-    // Handle update submission
-    if (isset($_POST['update_coupon'])) {
-        $id = intval($_POST['coupon_id']);
-        $code = sanitize_text_field($_POST['code']);
-        $discount_percent = intval($_POST['discount_percent']);
-        $max_uses = intval($_POST['max_uses']);
-        $expires_at = !empty($_POST['expires_at']) ? sanitize_text_field($_POST['expires_at']) : null;
-
-        $wpdb->update(
-            $table_name,
-            [
-                'code' => $code,
-                'discount_percent' => $discount_percent,
-                'max_uses' => $max_uses,
-                'expires_at' => $expires_at
-            ],
-            ['id' => $id],
-            ['%s', '%d', '%d', $expires_at ? '%s' : null],
-            ['%d']
-        );
-
-        echo '<div class="updated"><p>Coupon updated successfully!</p></div>';
+    $edit_coupon = null;
+    if (isset($_GET['action']) && $_GET['action'] == 'edit' && isset($_GET['coupon_id'])) {
+        $edit_coupon = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", intval($_GET['coupon_id'])));
     }
-
-    // Get coupon to edit, if any
-    $coupon_to_edit = null;
-    if (isset($_GET['action']) && $_GET['action'] == 'edit' && isset($_GET['id'])) {
-        $id = intval($_GET['id']);
-        $coupon_to_edit = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $id));
-    }
-
-    // Get all coupons for the list
-    $coupons = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
-
-    // Determine form values
-    $form_action = $coupon_to_edit ? 'update_coupon' : 'submit_coupon';
-    $form_title = $coupon_to_edit ? 'Edit Coupon' : 'Add New Coupon';
-    $button_text = $coupon_to_edit ? 'Update Coupon' : 'Add Coupon';
-    $code_readonly = $coupon_to_edit ? 'readonly' : '';
     ?>
     <div class="wrap">
         <h1>Coupons</h1>
-        
-        <h2><?php echo $form_title; ?></h2>
+
+        <?php if (isset($_GET['message'])): ?>
+            <div class="notice notice-success is-dismissible">
+                <p><?php echo $_GET['message'] == 1 ? 'Coupon saved successfully.' : 'Coupon deleted successfully.'; ?></p>
+            </div>
+        <?php endif; ?>
+
+        <h2><?php echo $edit_coupon ? 'Edit Coupon' : 'Add New Coupon'; ?></h2>
         <form method="post" action="">
-            <input type="hidden" name="coupon_id" value="<?php echo $coupon_to_edit ? esc_attr($coupon_to_edit->id) : ''; ?>">
+            <input type="hidden" name="coupon_id" value="<?php echo $edit_coupon ? esc_attr($edit_coupon->id) : ''; ?>">
+            <?php wp_nonce_field('puzzlepath_save_coupon', 'puzzlepath_coupon_nonce'); ?>
             <table class="form-table">
                 <tr>
                     <th scope="row"><label for="code">Coupon Code</label></th>
-                    <td><input type="text" name="code" id="code" class="regular-text" value="<?php echo $coupon_to_edit ? esc_attr($coupon_to_edit->code) : ''; ?>" <?php echo $code_readonly; ?> required></td>
+                    <td><input type="text" name="code" id="code" value="<?php echo $edit_coupon ? esc_attr($edit_coupon->code) : ''; ?>" class="regular-text" required></td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="discount_percent">Discount Percentage</label></th>
-                    <td><input type="number" name="discount_percent" id="discount_percent" min="1" max="100" value="<?php echo $coupon_to_edit ? esc_attr($coupon_to_edit->discount_percent) : ''; ?>" required></td>
+                    <th scope="row"><label for="discount_percent">Discount (%)</label></th>
+                    <td><input type="number" name="discount_percent" id="discount_percent" value="<?php echo $edit_coupon ? esc_attr($edit_coupon->discount_percent) : ''; ?>" class="small-text" required></td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="max_uses">Maximum Uses</label></th>
-                    <td>
-                        <input type="number" name="max_uses" id="max_uses" min="0" value="<?php echo $coupon_to_edit ? esc_attr($coupon_to_edit->max_uses) : '0'; ?>" required>
-                        <p class="description">Set to 0 for unlimited uses</p>
-                    </td>
+                    <th scope="row"><label for="max_uses">Max Uses</label></th>
+                    <td><input type="number" name="max_uses" id="max_uses" value="<?php echo $edit_coupon ? esc_attr($edit_coupon->max_uses) : '0'; ?>" class="small-text">
+                    <p class="description">Set to 0 for unlimited uses.</p></td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="expires_at">Expiry Date</label></th>
-                    <td>
-                        <input type="datetime-local" name="expires_at" id="expires_at" value="<?php echo $coupon_to_edit && $coupon_to_edit->expires_at ? esc_attr(date('Y-m-d\TH:i', strtotime($coupon_to_edit->expires_at))) : ''; ?>">
-                        <p class="description">Leave empty for no expiry</p>
-                    </td>
+                    <th scope="row"><label for="expires_at">Expires At</label></th>
+                    <td><input type="datetime-local" name="expires_at" id="expires_at" value="<?php echo $edit_coupon && $edit_coupon->expires_at ? date('Y-m-d\TH:i', strtotime($edit_coupon->expires_at)) : ''; ?>"></td>
                 </tr>
             </table>
-            <?php submit_button($button_text, 'primary', $form_action); ?>
+            <?php submit_button($edit_coupon ? 'Update Coupon' : 'Add Coupon'); ?>
         </form>
 
-        <h2>Existing Coupons</h2>
+        <hr/>
+        
+        <h2>All Coupons</h2>
         <table class="wp-list-table widefat fixed striped">
             <thead>
                 <tr>
                     <th>Code</th>
                     <th>Discount</th>
-                    <th>Uses</th>
-                    <th>Max Uses</th>
-                    <th>Expires</th>
-                    <th>Created</th>
+                    <th>Usage</th>
+                    <th>Expires At</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($coupons as $coupon): ?>
-                    <tr>
-                        <td><?php echo esc_html($coupon->code); ?></td>
-                        <td><?php echo esc_html($coupon->discount_percent); ?>%</td>
-                        <td><?php echo esc_html($coupon->times_used); ?></td>
-                        <td><?php echo $coupon->max_uses ? esc_html($coupon->max_uses) : 'Unlimited'; ?></td>
-                        <td>
-                            <?php
-                            if ($coupon->expires_at) {
-                                echo date('F j, Y g:i a', strtotime($coupon->expires_at));
-                            } else {
-                                echo 'Never';
-                            }
-                            ?>
-                        </td>
-                        <td><?php echo date('F j, Y', strtotime($coupon->created_at)); ?></td>
-                        <td>
-                            <a href="<?php echo add_query_arg(['page' => 'puzzlepath-coupons', 'action' => 'edit', 'id' => $coupon->id]); ?>" class="button button-small">Edit</a>
-                            <a href="<?php echo add_query_arg(['page' => 'puzzlepath-coupons', 'action' => 'delete', 'id' => $coupon->id]); ?>" 
-                               onclick="return confirm('Are you sure you want to delete this coupon?');"
-                               class="button button-small">Delete</a>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
+                <?php
+                $coupons = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
+                foreach ($coupons as $coupon) {
+                    echo '<tr>';
+                    echo '<td>' . esc_html($coupon->code) . '</td>';
+                    echo '<td>' . esc_html($coupon->discount_percent) . '%</td>';
+                    echo '<td>' . esc_html($coupon->times_used) . ' / ' . ($coupon->max_uses > 0 ? esc_html($coupon->max_uses) : '∞') . '</td>';
+                    echo '<td>' . ($coupon->expires_at ? date('F j, Y, g:i a', strtotime($coupon->expires_at)) : 'Never') . '</td>';
+                    echo '<td>';
+                    echo '<a href="' . admin_url('admin.php?page=puzzlepath-coupons&action=edit&coupon_id=' . $coupon->id) . '">Edit</a> | ';
+                    $delete_nonce = wp_create_nonce('puzzlepath_delete_coupon_' . $coupon->id);
+                    echo '<a href="' . admin_url('admin.php?page=puzzlepath-coupons&action=delete&coupon_id=' . $coupon->id . '&_wpnonce=' . $delete_nonce) . '" onclick="return confirm(\'Are you sure you want to delete this coupon?\')">Delete</a>';
+                    echo '</td>';
+                    echo '</tr>';
+                }
+                ?>
             </tbody>
         </table>
     </div>

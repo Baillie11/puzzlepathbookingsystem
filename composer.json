@@ -1,0 +1,17 @@
+{
+    "name": "puzzlepath/booking-plugin",
+    "description": "Custom booking system for PuzzlePath events with Stripe payment integration",
+    "type": "wordpress-plugin",
+    "require": {
+        "stripe/stripe-php": "^10.0",
+        "php": ">=7.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "PuzzlePath\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+} 

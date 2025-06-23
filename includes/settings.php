@@ -1,18 +1,8 @@
 <?php
 defined('ABSPATH') or die('No script kiddies please!');
 
-// Add menu page for settings
-add_action('admin_menu', 'puzzlepath_add_admin_menu');
-function puzzlepath_add_admin_menu() {
-    add_menu_page(
-        'PuzzlePath Booking',
-        'PuzzlePath',
-        'manage_options',
-        'puzzlepath-booking',
-        'puzzlepath_settings_page',
-        'dashicons-calendar-alt'
-    );
-}
+// This file now only handles the main settings tab content.
+// Menu pages are now registered in their respective files (events.php, coupons.php, stripe-integration.php)
 
 // Register settings
 add_action('admin_init', 'puzzlepath_register_settings');

@@ -1,205 +1,160 @@
 <?php
 defined('ABSPATH') or die('No script kiddies please!');
 
-// Add submenu page for events
-add_action('admin_menu', 'puzzlepath_add_events_menu');
-function puzzlepath_add_events_menu() {
-    add_submenu_page(
-        'puzzlepath-booking',
-        'Events',
-        'Events',
-        'manage_options',
-        'puzzlepath-events',
-        'puzzlepath_events_page'
-    );
-}
+// The admin menu for this page is now registered in the main plugin file.
 
-// Events page content
+/**
+ * Display the main page for managing events.
+ */
 function puzzlepath_events_page() {
-    if (!current_user_can('manage_options')) {
-        return;
-    }
-
     global $wpdb;
     $table_name = $wpdb->prefix . 'pp_events';
 
-    // Handle form submission
-    if (isset($_POST['submit_event'])) {
+    // Handle form submissions for adding/editing events
+    if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['puzzlepath_event_nonce'])) {
+        if (!wp_verify_nonce($_POST['puzzlepath_event_nonce'], 'puzzlepath_save_event')) {
+            wp_die('Security check failed.');
+        }
+
+        $id = isset($_POST['event_id']) ? intval($_POST['event_id']) : 0;
         $title = sanitize_text_field($_POST['title']);
-        $hosting_type = sanitize_text_field($_POST['hosting_type']);
-        $event_date = ($hosting_type === 'hosted' && !empty($_POST['event_date'])) ? sanitize_text_field($_POST['event_date']) : null;
         $location = sanitize_text_field($_POST['location']);
         $price = floatval($_POST['price']);
         $seats = intval($_POST['seats']);
-
-        $wpdb->insert(
-            $table_name,
-            [
-                'title' => $title,
-                'hosting_type' => $hosting_type,
-                'event_date' => $event_date,
-                'location' => $location,
-                'price' => $price,
-                'seats' => $seats
-            ],
-            ['%s', '%s', $event_date ? '%s' : null, '%s', '%f', '%d']
-        );
-
-        echo '<div class="updated"><p>Event added successfully!</p></div>';
-    }
-
-    // Handle delete action
-    if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id'])) {
-        $id = intval($_GET['id']);
-        $wpdb->delete($table_name, ['id' => $id], ['%d']);
-        echo '<div class="updated"><p>Event deleted successfully!</p></div>';
-    }
-
-    // Handle update submission
-    if (isset($_POST['update_event'])) {
-        $id = intval($_POST['event_id']);
-        $title = sanitize_text_field($_POST['title']);
-        $hosting_type = sanitize_text_field($_POST['hosting_type']);
+        $hosting_type = in_array($_POST['hosting_type'], ['hosted', 'self_hosted']) ? $_POST['hosting_type'] : 'hosted';
         $event_date = ($hosting_type === 'hosted' && !empty($_POST['event_date'])) ? sanitize_text_field($_POST['event_date']) : null;
-        $location = sanitize_text_field($_POST['location']);
-        $price = floatval($_POST['price']);
-        $seats = intval($_POST['seats']);
 
-        $wpdb->update(
-            $table_name,
-            [
-                'title' => $title,
-                'hosting_type' => $hosting_type,
-                'event_date' => $event_date,
-                'location' => $location,
-                'price' => $price,
-                'seats' => $seats
-            ],
-            ['id' => $id],
-            ['%s', '%s', $event_date ? '%s' : null, '%s', '%f', '%d'],
-            ['%d']
-        );
+        $data = [
+            'title' => $title,
+            'location' => $location,
+            'price' => $price,
+            'seats' => $seats,
+            'hosting_type' => $hosting_type,
+            'event_date' => $event_date,
+        ];
 
-        echo '<div class="updated"><p>Event updated successfully!</p></div>';
+        if ($id > 0) {
+            $wpdb->update($table_name, $data, ['id' => $id]);
+        } else {
+            $wpdb->insert($table_name, $data);
+        }
+        
+        // Redirect to avoid form resubmission
+        wp_redirect(admin_url('admin.php?page=puzzlepath-events&message=1'));
+        exit;
     }
 
-    // Get event to edit, if any
-    $event_to_edit = null;
-    if (isset($_GET['action']) && $_GET['action'] == 'edit' && isset($_GET['id'])) {
-        $id = intval($_GET['id']);
-        $event_to_edit = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $id));
+    // Handle event deletion
+    if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['event_id'])) {
+        if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'puzzlepath_delete_event_' . $_GET['event_id'])) {
+            wp_die('Security check failed.');
+        }
+        $id = intval($_GET['event_id']);
+        $wpdb->delete($table_name, ['id' => $id]);
+        wp_redirect(admin_url('admin.php?page=puzzlepath-events&message=2'));
+        exit;
     }
 
-    // Get all events for the list
-    $events = $wpdb->get_results("SELECT * FROM $table_name ORDER BY event_date ASC, title ASC");
-    
-    // Determine form values
-    $form_action = $event_to_edit ? 'update_event' : 'submit_event';
-    $form_title = $event_to_edit ? 'Edit Event' : 'Add New Event';
-    $button_text = $event_to_edit ? 'Update Event' : 'Add Event';
+    $edit_event = null;
+    if (isset($_GET['action']) && $_GET['action'] == 'edit' && isset($_GET['event_id'])) {
+        $edit_event = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", intval($_GET['event_id'])));
+    }
     ?>
     <div class="wrap">
         <h1>Events</h1>
-        
-        <h2><?php echo $form_title; ?></h2>
+
+        <?php if (isset($_GET['message'])): ?>
+            <div class="notice notice-success is-dismissible">
+                <p><?php echo $_GET['message'] == 1 ? 'Event saved successfully.' : 'Event deleted successfully.'; ?></p>
+            </div>
+        <?php endif; ?>
+
+        <h2><?php echo $edit_event ? 'Edit Event' : 'Add New Event'; ?></h2>
         <form method="post" action="">
-            <input type="hidden" name="event_id" value="<?php echo $event_to_edit ? esc_attr($event_to_edit->id) : ''; ?>">
+            <input type="hidden" name="event_id" value="<?php echo $edit_event ? esc_attr($edit_event->id) : ''; ?>">
+            <?php wp_nonce_field('puzzlepath_save_event', 'puzzlepath_event_nonce'); ?>
             <table class="form-table">
                 <tr>
                     <th scope="row"><label for="title">Title</label></th>
-                    <td><input type="text" name="title" id="title" class="regular-text" value="<?php echo $event_to_edit ? esc_attr($event_to_edit->title) : ''; ?>" required></td>
+                    <td><input type="text" name="title" id="title" value="<?php echo $edit_event ? esc_attr($edit_event->title) : ''; ?>" class="regular-text" required></td>
                 </tr>
                 <tr>
                     <th scope="row"><label for="hosting_type">Hosting Type</label></th>
                     <td>
-                        <select name="hosting_type" id="hosting_type" required>
-                            <option value="hosted" <?php selected($event_to_edit ? $event_to_edit->hosting_type : '', 'hosted'); ?>>Hosted</option>
-                            <option value="self_hosted" <?php selected($event_to_edit ? $event_to_edit->hosting_type : '', 'self_hosted'); ?>>Self Hosted (App)</option>
+                        <select name="hosting_type" id="hosting_type">
+                            <option value="hosted" <?php selected($edit_event ? $edit_event->hosting_type : '', 'hosted'); ?>>Hosted</option>
+                            <option value="self_hosted" <?php selected($edit_event ? $edit_event->hosting_type : '', 'self_hosted'); ?>>Self Hosted (App)</option>
                         </select>
-                        <p class="description">Hosted events have a specific date and time. Self Hosted events are played via the app at any time.</p>
                     </td>
                 </tr>
-                <tr id="date_row" style="display: none;">
-                    <th scope="row"><label for="event_date">Date & Time</label></th>
-                    <td><input type="datetime-local" name="event_date" id="event_date" value="<?php echo $event_to_edit && $event_to_edit->event_date ? esc_attr(date('Y-m-d\TH:i', strtotime($event_to_edit->event_date))) : ''; ?>"></td>
+                <tr id="event_date_row">
+                    <th scope="row"><label for="event_date">Event Date</label></th>
+                    <td><input type="datetime-local" name="event_date" id="event_date" value="<?php echo $edit_event && $edit_event->event_date ? date('Y-m-d\TH:i', strtotime($edit_event->event_date)) : ''; ?>"></td>
                 </tr>
                 <tr>
                     <th scope="row"><label for="location">Location</label></th>
-                    <td><input type="text" name="location" id="location" class="regular-text" value="<?php echo $event_to_edit ? esc_attr($event_to_edit->location) : ''; ?>" required></td>
+                    <td><input type="text" name="location" id="location" value="<?php echo $edit_event ? esc_attr($edit_event->location) : ''; ?>" class="regular-text" required></td>
                 </tr>
                 <tr>
                     <th scope="row"><label for="price">Price</label></th>
-                    <td><input type="number" name="price" id="price" step="0.01" min="0" value="<?php echo $event_to_edit ? esc_attr($event_to_edit->price) : ''; ?>" required></td>
+                    <td><input type="number" step="0.01" name="price" id="price" value="<?php echo $edit_event ? esc_attr($edit_event->price) : ''; ?>" class="small-text" required></td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="seats">Available Seats</label></th>
-                    <td><input type="number" name="seats" id="seats" min="1" value="<?php echo $event_to_edit ? esc_attr($event_to_edit->seats) : ''; ?>" required></td>
+                    <th scope="row"><label for="seats">Seats</label></th>
+                    <td><input type="number" name="seats" id="seats" value="<?php echo $edit_event ? esc_attr($edit_event->seats) : ''; ?>" class="small-text" required></td>
                 </tr>
             </table>
-            <?php submit_button($button_text, 'primary', $form_action); ?>
+            <?php submit_button($edit_event ? 'Update Event' : 'Add Event'); ?>
         </form>
 
-        <h2>Existing Events</h2>
+        <hr/>
+        
+        <h2>All Events</h2>
         <table class="wp-list-table widefat fixed striped">
             <thead>
                 <tr>
                     <th>Title</th>
                     <th>Hosting Type</th>
-                    <th>Date & Time</th>
+                    <th>Event Date</th>
                     <th>Location</th>
                     <th>Price</th>
-                    <th>Available Seats</th>
+                    <th>Seats Left</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($events as $event): ?>
-                    <tr>
-                        <td><?php echo esc_html($event->title); ?></td>
-                        <td><?php echo $event->hosting_type === 'hosted' ? 'Hosted' : 'Self Hosted (App)'; ?></td>
-                        <td>
-                            <?php 
-                            if ($event->hosting_type === 'hosted' && $event->event_date) {
-                                echo date('F j, Y g:i a', strtotime($event->event_date));
-                            } else {
-                                echo 'N/A';
-                            }
-                            ?>
-                        </td>
-                        <td><?php echo esc_html($event->location); ?></td>
-                        <td>$<?php echo number_format($event->price, 2); ?></td>
-                        <td><?php echo esc_html($event->seats); ?></td>
-                        <td>
-                            <a href="<?php echo add_query_arg(['action' => 'edit', 'id' => $event->id]); ?>" class="button button-small">Edit</a>
-                            <a href="<?php echo add_query_arg(['action' => 'delete', 'id' => $event->id]); ?>" 
-                               onclick="return confirm('Are you sure you want to delete this event?');"
-                               class="button button-small">Delete</a>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
+                <?php
+                $events = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
+                foreach ($events as $event) {
+                    echo '<tr>';
+                    echo '<td>' . esc_html($event->title) . '</td>';
+                    echo '<td>' . ($event->hosting_type === 'hosted' ? 'Hosted' : 'Self Hosted (App)') . '</td>';
+                    echo '<td>' . ($event->event_date ? date('F j, Y, g:i a', strtotime($event->event_date)) : 'N/A') . '</td>';
+                    echo '<td>' . esc_html($event->location) . '</td>';
+                    echo '<td>$' . number_format($event->price, 2) . '</td>';
+                    echo '<td>' . esc_html($event->seats) . '</td>';
+                    echo '<td>';
+                    echo '<a href="' . admin_url('admin.php?page=puzzlepath-events&action=edit&event_id=' . $event->id) . '">Edit</a> | ';
+                    $delete_nonce = wp_create_nonce('puzzlepath_delete_event_' . $event->id);
+                    echo '<a href="' . admin_url('admin.php?page=puzzlepath-events&action=delete&event_id=' . $event->id . '&_wpnonce=' . $delete_nonce) . '" onclick="return confirm(\'Are you sure you want to delete this event?\')">Delete</a>';
+                    echo '</td>';
+                    echo '</tr>';
+                }
+                ?>
             </tbody>
         </table>
     </div>
-
     <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const hostingType = document.getElementById('hosting_type');
-        const dateRow = document.getElementById('date_row');
-        const eventDate = document.getElementById('event_date');
-        
-        function toggleDateField() {
-            if (hostingType.value === 'hosted') {
-                dateRow.style.display = 'table-row';
-                eventDate.required = true;
+    jQuery(document).ready(function($) {
+        function toggleEventDate() {
+            if ($('#hosting_type').val() === 'hosted') {
+                $('#event_date_row').show();
             } else {
-                dateRow.style.display = 'none';
-                eventDate.required = false;
-                eventDate.value = '';
+                $('#event_date_row').hide();
             }
         }
-        
-        hostingType.addEventListener('change', toggleDateField);
-        toggleDateField(); // Run on page load
+        toggleEventDate();
+        $('#hosting_type').on('change', toggleEventDate);
     });
     </script>
     <?php
