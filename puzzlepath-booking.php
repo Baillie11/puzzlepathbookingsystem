@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath.
- * Version: 2.2.1
+ * Version: 2.3.1
  * Author: Andrew Baillie
  */
 
@@ -70,7 +70,7 @@ function puzzlepath_activate() {
     ) $charset_collate;";
     dbDelta($sql);
     
-    update_option('puzzlepath_booking_version', '2.2.1');
+    update_option('puzzlepath_booking_version', '2.3.1');
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 

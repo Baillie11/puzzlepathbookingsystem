@@ -54,6 +54,13 @@ class PuzzlePath_Stripe_Integration {
             'callback' => array($this, 'handle_webhook'),
             'permission_callback' => '__return_true'
         ));
+
+        // New endpoint to fetch booking code by payment intent
+        register_rest_route('puzzlepath/v1', '/booking-status', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_booking_status'),
+            'permission_callback' => '__return_true'
+        ));
     }
 
     private function get_stripe_keys() {
@@ -104,6 +111,8 @@ class PuzzlePath_Stripe_Integration {
         \Stripe\Stripe::setApiKey($stripe_keys['secret']);
 
         try {
+            // Generate a unique booking code first
+            $booking_code = $this->generate_unique_booking_code();
             // Create a pending booking first
             $wpdb->insert("{$wpdb->prefix}pp_bookings", [
                 'event_id' => $event_id,
@@ -113,6 +122,7 @@ class PuzzlePath_Stripe_Integration {
                 'total_price' => $total_price,
                 'coupon_id' => $coupon_id,
                 'payment_status' => 'pending',
+                'booking_code' => $booking_code,
             ]);
             $booking_id = $wpdb->insert_id;
 
@@ -134,7 +144,8 @@ class PuzzlePath_Stripe_Integration {
 
             return new WP_REST_Response([
                 'clientSecret' => $payment_intent->client_secret,
-                'bookingId' => $booking_id
+                'bookingId' => $booking_id,
+                'bookingCode' => $booking_code
             ], 200);
 
         } catch (Exception $e) {
@@ -158,7 +169,8 @@ class PuzzlePath_Stripe_Integration {
 
         if ($event->type == 'charge.succeeded') {
             $payment_intent = $event->data->object;
-            $this->fulfill_booking($payment_intent->id);
+            $booking_code = $this->fulfill_booking($payment_intent->id);
+            return new WP_REST_Response(array('status' => 'success', 'booking_code' => $booking_code), 200);
         }
 
         return new WP_REST_Response(array('status' => 'success'), 200);
@@ -173,14 +185,10 @@ class PuzzlePath_Stripe_Integration {
         $booking = $wpdb->get_row($wpdb->prepare("SELECT * FROM $bookings_table WHERE stripe_payment_intent_id = %s", $payment_intent_id));
 
         if ($booking && $booking->payment_status === 'pending') {
-            // Generate a unique booking code
-            $booking_code = $this->generate_unique_booking_code();
-
-            // Update booking status and add booking code
+            // No need to generate a new code, just update status
             $wpdb->update($bookings_table, 
                 [
-                    'payment_status' => 'succeeded',
-                    'booking_code' => $booking_code
+                    'payment_status' => 'succeeded'
                 ], 
                 ['id' => $booking->id]
             );
@@ -192,9 +200,28 @@ class PuzzlePath_Stripe_Integration {
             if ($booking->coupon_id) {
                 $wpdb->query($wpdb->prepare("UPDATE $coupons_table SET times_used = times_used + 1 WHERE id = %d", $booking->coupon_id));
             }
-            
-            // TODO: Send confirmation email
+
+            // Send confirmation email
+            $this->send_confirmation_email($booking, $booking->booking_code);
+
+            return $booking->booking_code;
         }
+        return null;
+    }
+
+    private function send_confirmation_email($booking, $booking_code) {
+        $to = $booking->customer_email;
+        $subject = 'Your PuzzlePath Booking Confirmation';
+        $event_title = '';
+        $event_date = '';
+        global $wpdb;
+        $event = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pp_events WHERE id = %d", $booking->event_id));
+        if ($event) {
+            $event_title = $event->title;
+            $event_date = $event->event_date;
+        }
+        $message = "Dear {$booking->customer_name},\n\nThank you for your booking!\n\nBooking Details:\nEvent: {$event_title}\nDate: {$event_date}\nPrice: ".$booking->total_price."\nBooking Code: {$booking_code}\n\nRegards,\nPuzzlePath Team";
+        wp_mail($to, $subject, $message);
     }
 
     /**
@@ -210,6 +237,22 @@ class PuzzlePath_Stripe_Integration {
         } while ($exists > 0);
         
         return $code;
+    }
+
+    public function get_booking_status($request) {
+        global $wpdb;
+        $payment_intent_id = $request->get_param('payment_intent');
+        if (!$payment_intent_id) {
+            return new WP_Error('missing_param', 'Missing payment_intent parameter', array('status' => 400));
+        }
+        $booking = $wpdb->get_row($wpdb->prepare("SELECT booking_code, payment_status FROM {$wpdb->prefix}pp_bookings WHERE stripe_payment_intent_id = %s", $payment_intent_id));
+        if (!$booking) {
+            return new WP_REST_Response(['status' => 'pending'], 200);
+        }
+        if ($booking->payment_status === 'succeeded' && $booking->booking_code) {
+            return new WP_REST_Response(['status' => 'succeeded', 'booking_code' => $booking->booking_code], 200);
+        }
+        return new WP_REST_Response(['status' => $booking->payment_status], 200);
     }
 
     /**

@@ -85,6 +85,8 @@ jQuery(document).ready(function ($) {
         payWithCard(stripe, cardNumber, cardExpiry, cardCvc, postalCode);
     });
 
+    var bookingCode = null;
+
     var payWithCard = function(stripe, cardNumberElement, cardExpiryElement, cardCvcElement, postalCodeElement) {
         submitButton.prop('disabled', true);
 
@@ -110,6 +112,9 @@ jQuery(document).ready(function ($) {
             return response.json();
         })
         .then(function(result) {
+            if (result.bookingCode) {
+                bookingCode = result.bookingCode;
+            }
             if (result.clientSecret) {
                 // Confirm the payment with the client secret
                 confirmPayment(result.clientSecret, cardNumberElement, cardExpiryElement, cardCvcElement, postalCodeElement, bookingData.email);
@@ -135,15 +140,19 @@ jQuery(document).ready(function ($) {
                 }
             }
         }).then(function(result) {
+            var codeMsg = bookingCode ? '<p>Your unique booking code: <strong>' + bookingCode + '</strong></p>' : '';
             if (result.error) {
                 // Show error to your customer
                 $('#card-errors').text(result.error.message);
                 submitButton.prop('disabled', false);
+                // Show code on failure
+                $('#puzzlepath-booking-form').hide();
+                $('#payment-success-message').show().append(codeMsg);
             } else {
                 // The payment has been processed!
                 if (result.paymentIntent.status === 'succeeded') {
                     $('#puzzlepath-booking-form').hide();
-                    $('#payment-success-message').show();
+                    $('#payment-success-message').show().append(codeMsg);
                 }
             }
         });
