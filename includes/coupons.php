@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 ﻿<?php
+=======
+<?php
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
 defined('ABSPATH') or die('No script kiddies please!');
 
 // The admin menu for this page is now registered in the main plugin file.
@@ -7,11 +11,14 @@ defined('ABSPATH') or die('No script kiddies please!');
  * Display the main page for managing coupons.
  */
 function puzzlepath_coupons_page() {
+<<<<<<< HEAD
     // Start output buffering to prevent headers already sent errors
     if (!ob_get_level()) {
         ob_start();
     }
     
+=======
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
     global $wpdb;
     $table_name = $wpdb->prefix . 'pp_coupons';
 
@@ -40,7 +47,11 @@ function puzzlepath_coupons_page() {
             $wpdb->insert($table_name, $data);
         }
 
+<<<<<<< HEAD
         echo '<script type="text/javascript">window.location.href = "' . admin_url('admin.php?page=puzzlepath-coupons&message=1') . '";</script>';
+=======
+        wp_redirect(admin_url('admin.php?page=puzzlepath-coupons&message=1'));
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
         exit;
     }
 
@@ -115,7 +126,11 @@ function puzzlepath_coupons_page() {
                     echo '<tr>';
                     echo '<td>' . esc_html($coupon->code) . '</td>';
                     echo '<td>' . esc_html($coupon->discount_percent) . '%</td>';
+<<<<<<< HEAD
                     echo '<td>' . esc_html($coupon->times_used) . ' / ' . ($coupon->max_uses > 0 ? esc_html($coupon->max_uses) : 'âˆž') . '</td>';
+=======
+                    echo '<td>' . esc_html($coupon->times_used) . ' / ' . ($coupon->max_uses > 0 ? esc_html($coupon->max_uses) : '∞') . '</td>';
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
                     echo '<td>' . ($coupon->expires_at ? date('F j, Y, g:i a', strtotime($coupon->expires_at)) : 'Never') . '</td>';
                     echo '<td>';
                     echo '<a href="' . admin_url('admin.php?page=puzzlepath-coupons&action=edit&coupon_id=' . $coupon->id) . '">Edit</a> | ';
@@ -129,4 +144,8 @@ function puzzlepath_coupons_page() {
         </table>
     </div>
     <?php
+<<<<<<< HEAD
 } 
+=======
+} 
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500

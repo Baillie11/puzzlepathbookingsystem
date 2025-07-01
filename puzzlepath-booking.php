@@ -1,9 +1,18 @@
+<<<<<<< HEAD
 ﻿<?php
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath.
  * Version: 2.3.5
  * Author: Andrew Baillie - Click eCommerce
+=======
+<?php
+/**
+ * Plugin Name: PuzzlePath Booking
+ * Description: A custom booking plugin for PuzzlePath.
+ * Version: 2.3.1
+ * Author: Andrew Baillie
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
  */
 
 defined('ABSPATH') or die('No script kiddies please!');
@@ -25,7 +34,10 @@ function puzzlepath_activate() {
     $table_name = $wpdb->prefix . 'pp_events';
     $sql = "CREATE TABLE $table_name (
         id mediumint(9) NOT NULL AUTO_INCREMENT,
+<<<<<<< HEAD
         event_uid varchar(32) DEFAULT NULL,
+=======
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
         created_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
         title varchar(255) NOT NULL,
         hosting_type varchar(20) DEFAULT 'hosted' NOT NULL,
@@ -33,8 +45,12 @@ function puzzlepath_activate() {
         location varchar(255) NOT NULL,
         price float NOT NULL,
         seats int(11) NOT NULL,
+<<<<<<< HEAD
         PRIMARY KEY  (id),
         UNIQUE KEY event_uid (event_uid)
+=======
+        PRIMARY KEY  (id)
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
     ) $charset_collate;";
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
@@ -72,7 +88,11 @@ function puzzlepath_activate() {
     ) $charset_collate;";
     dbDelta($sql);
     
+<<<<<<< HEAD
     update_option('puzzlepath_booking_version', '2.3.5');
+=======
+    update_option('puzzlepath_booking_version', '2.3.1');
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 
@@ -89,6 +109,7 @@ add_action('plugins_loaded', 'puzzlepath_update_db_check');
 
 
 /**
+<<<<<<< HEAD
  * Initialize output buffering for admin pages to prevent headers already sent errors.
  */
 function puzzlepath_init_output_buffering() {
@@ -99,6 +120,8 @@ function puzzlepath_init_output_buffering() {
 add_action('init', 'puzzlepath_init_output_buffering', 1);
 
 /**
+=======
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
  * Centralized function to create all admin menus.
  */
 function puzzlepath_register_admin_menus() {
@@ -279,10 +302,13 @@ function puzzlepath_booking_form_shortcode() {
             <h2>Payment Successful!</h2>
             <p>Thank you for your booking. A confirmation email has been sent to you.</p>
         </div>
+<<<<<<< HEAD
         <div id="payment-failure-message" style="display: none;">
             <h2>Payment Failed</h2>
             <p id="failure-instructions"></p>
         </div>
+=======
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
     </div>
     <style>
         .form-row-split { display: flex; gap: 15px; }
@@ -302,4 +328,8 @@ function puzzlepath_booking_form_shortcode() {
     <?php
     return ob_get_clean();
 }
+<<<<<<< HEAD
 add_shortcode('puzzlepath_booking_form', 'puzzlepath_booking_form_shortcode');
+=======
+add_shortcode('puzzlepath_booking_form', 'puzzlepath_booking_form_shortcode');
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500

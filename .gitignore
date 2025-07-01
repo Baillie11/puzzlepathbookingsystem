@@ -1,0 +1,29 @@
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Node modules
+node_modules/
+
+# Composer
+vendor/
+composer.lock
+
+# WordPress plugin specific
+*.log
+*.zip
+*.tar.gz
+*.tgz
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~.nib
+*.sass-cache 

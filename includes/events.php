@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 ﻿<?php
+=======
+<?php
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
 defined('ABSPATH') or die('No script kiddies please!');
 
 // The admin menu for this page is now registered in the main plugin file.
@@ -7,11 +11,14 @@ defined('ABSPATH') or die('No script kiddies please!');
  * Display the main page for managing events.
  */
 function puzzlepath_events_page() {
+<<<<<<< HEAD
     // Start output buffering to prevent headers already sent errors
     if (!ob_get_level()) {
         ob_start();
     }
     
+=======
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
     global $wpdb;
     $table_name = $wpdb->prefix . 'pp_events';
 
@@ -41,6 +48,7 @@ function puzzlepath_events_page() {
         if ($id > 0) {
             $wpdb->update($table_name, $data, ['id' => $id]);
         } else {
+<<<<<<< HEAD
             // Generate a unique event_uid
             do {
                 $event_uid = 'EVT-' . substr(str_shuffle('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 8);
@@ -52,6 +60,13 @@ function puzzlepath_events_page() {
         
         // Use JavaScript redirect since wp_redirect is failing due to headers already sent
         echo '<script type="text/javascript">window.location.href = "' . admin_url('admin.php?page=puzzlepath-events&message=1') . '";</script>';
+=======
+            $wpdb->insert($table_name, $data);
+        }
+        
+        // Redirect to avoid form resubmission
+        wp_redirect(admin_url('admin.php?page=puzzlepath-events&message=1'));
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
         exit;
     }
 
@@ -124,7 +139,10 @@ function puzzlepath_events_page() {
         <table class="wp-list-table widefat fixed striped">
             <thead>
                 <tr>
+<<<<<<< HEAD
                     <th>Event ID</th>
+=======
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
                     <th>Title</th>
                     <th>Hosting Type</th>
                     <th>Event Date</th>
@@ -139,7 +157,10 @@ function puzzlepath_events_page() {
                 $events = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
                 foreach ($events as $event) {
                     echo '<tr>';
+<<<<<<< HEAD
                     echo '<td>' . esc_html($event->event_uid) . '</td>';
+=======
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
                     echo '<td>' . esc_html($event->title) . '</td>';
                     echo '<td>' . ($event->hosting_type === 'hosted' ? 'Hosted' : 'Self Hosted (App)') . '</td>';
                     echo '<td>' . ($event->event_date ? date('F j, Y, g:i a', strtotime($event->event_date)) : 'N/A') . '</td>';
@@ -171,6 +192,7 @@ function puzzlepath_events_page() {
     });
     </script>
     <?php
+<<<<<<< HEAD
 }
 
 // Bookings page function - menu is registered in main plugin file
@@ -251,3 +273,6 @@ function puzzlepath_bookings_page() {
     </div>
     <?php
 } 
+=======
+} 
+>>>>>>> 7de96ad7ad0c01e25fd6b5b7ca87ba80255f8500
