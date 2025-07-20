@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath.
- * Version: 2.3.1
+ * Version: 2.4.0
  * Author: Andrew Baillie
  */
 
@@ -70,7 +70,7 @@ function puzzlepath_activate() {
     ) $charset_collate;";
     dbDelta($sql);
     
-    update_option('puzzlepath_booking_version', '2.3.1');
+    update_option('puzzlepath_booking_version', '2.4.0');
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 
@@ -124,7 +124,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form-style',
             plugin_dir_url(__FILE__) . 'css/booking-form.css',
             array(),
-            '1.0.1' // version
+            '1.3.0' // version
         );
         
         wp_enqueue_script('jquery');
@@ -206,6 +206,9 @@ function puzzlepath_booking_form_shortcode() {
     ob_start();
     ?>
     <div id="puzzlepath-booking-form-container">
+        <div id="floating-logo">
+            <img src="<?php echo plugin_dir_url(__FILE__) . 'images/puzzlepath-logo.png'; ?>" alt="Puzzle Path Logo" />
+        </div>
         <form id="puzzlepath-booking-form">
 
             <label for="event_id">Choose your adventure:</label>

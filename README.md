@@ -52,8 +52,21 @@ The plugin creates three database tables:
 
 ## Version History
 
+- **2.4.0** (July 20, 2025): **STABLE WORKING VERSION** - Floating animated logo, fixed PHP header warnings, fully functional booking system with Stripe integration
+- **2.3.1**: Previous stable version
 - **2.0.0**: Simplified version without payment processing
 - **1.1.15**: Previous version with Stripe integration
+
+### Recent Updates (v2.4.0)
+
+- ✅ **Floating Logo Animation**: Added PuzzlePath logo with smooth floating animation above booking form
+- ✅ **Mobile Responsive**: Logo and form work perfectly on all device sizes
+- ✅ **PHP Header Fix**: Resolved "headers already sent" warnings during event creation/deletion
+- ✅ **Output Buffering**: Implemented proper output buffering in event management
+- ✅ **Cache Busting**: Updated CSS versioning for immediate style updates
+- ✅ **Deployment Ready**: Includes deployment checklist and zip packaging
+
+**Status**: Fully tested and working in local XAMPP environment. Ready for live deployment.
 
 ## Support
 

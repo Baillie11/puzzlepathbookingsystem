@@ -7,6 +7,11 @@ defined('ABSPATH') or die('No script kiddies please!');
  * Display the main page for managing events.
  */
 function puzzlepath_events_page() {
+    // Start output buffering to prevent headers already sent errors
+    if (!headers_sent()) {
+        ob_start();
+    }
+    
     global $wpdb;
     $table_name = $wpdb->prefix . 'pp_events';
 
@@ -39,7 +44,10 @@ function puzzlepath_events_page() {
             $wpdb->insert($table_name, $data);
         }
         
-        // Redirect to avoid form resubmission
+        // Clear any output buffer and redirect to avoid form resubmission
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
         wp_redirect(admin_url('admin.php?page=puzzlepath-events&message=1'));
         exit;
     }
@@ -51,6 +59,11 @@ function puzzlepath_events_page() {
         }
         $id = intval($_GET['event_id']);
         $wpdb->delete($table_name, ['id' => $id]);
+        
+        // Clear any output buffer and redirect
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
         wp_redirect(admin_url('admin.php?page=puzzlepath-events&message=2'));
         exit;
     }
