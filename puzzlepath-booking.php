@@ -2,8 +2,8 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath.
- * Version: 2.4.0
- * Author: Andrew Baillie
+ * Version: 2.5.0
+ * Author: Andrew Baillie - Click eCommerce
  */
 
 defined('ABSPATH') or die('No script kiddies please!');
@@ -25,6 +25,7 @@ function puzzlepath_activate() {
     $table_name = $wpdb->prefix . 'pp_events';
     $sql = "CREATE TABLE $table_name (
         id mediumint(9) NOT NULL AUTO_INCREMENT,
+        event_uid varchar(32) DEFAULT NULL,
         created_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
         title varchar(255) NOT NULL,
         hosting_type varchar(20) DEFAULT 'hosted' NOT NULL,
@@ -32,7 +33,8 @@ function puzzlepath_activate() {
         location varchar(255) NOT NULL,
         price float NOT NULL,
         seats int(11) NOT NULL,
-        PRIMARY KEY  (id)
+        PRIMARY KEY  (id),
+        UNIQUE KEY event_uid (event_uid)
     ) $charset_collate;";
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
@@ -70,7 +72,7 @@ function puzzlepath_activate() {
     ) $charset_collate;";
     dbDelta($sql);
     
-    update_option('puzzlepath_booking_version', '2.4.0');
+    update_option('puzzlepath_booking_version', '2.5.0');
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 
@@ -85,6 +87,15 @@ function puzzlepath_update_db_check() {
 }
 add_action('plugins_loaded', 'puzzlepath_update_db_check');
 
+/**
+ * Initialize output buffering for admin pages to prevent headers already sent errors.
+ */
+function puzzlepath_init_output_buffering() {
+    if (is_admin() && !ob_get_level()) {
+        ob_start();
+    }
+}
+add_action('init', 'puzzlepath_init_output_buffering', 1);
 
 /**
  * Centralized function to create all admin menus.
@@ -269,6 +280,10 @@ function puzzlepath_booking_form_shortcode() {
         <div id="payment-success-message" style="display: none;">
             <h2>Payment Successful!</h2>
             <p>Thank you for your booking. A confirmation email has been sent to you.</p>
+        </div>
+        <div id="payment-failure-message" style="display: none;">
+            <h2>Payment Failed</h2>
+            <p id="failure-instructions"></p>
         </div>
     </div>
     <style>
