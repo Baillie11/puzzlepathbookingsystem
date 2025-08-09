@@ -112,6 +112,7 @@ add_action('plugins_loaded', 'puzzlepath_update_db_check');
  */
 function puzzlepath_register_admin_menus() {
     add_menu_page('PuzzlePath Bookings', 'PuzzlePath', 'manage_options', 'puzzlepath-booking', 'puzzlepath_events_page', 'dashicons-tickets-alt', 20);
+    add_submenu_page('puzzlepath-booking', 'Bookings', 'Bookings', 'manage_options', 'puzzlepath-bookings', 'puzzlepath_bookings_page');
     add_submenu_page('puzzlepath-booking', 'Events', 'Events', 'manage_options', 'puzzlepath-events', 'puzzlepath_events_page');
     add_submenu_page('puzzlepath-booking', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
     add_submenu_page('puzzlepath-booking', 'Settings', 'Settings', 'manage_options', 'puzzlepath-settings', 'puzzlepath_settings_page');
@@ -1014,3 +1015,753 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
         echo '<div class="error"><p>PuzzlePath Booking: The Stripe PHP library is not installed. Please run "composer install" in the plugin directory.</p></div>';
     });
 }
+
+// ========================= BOOKINGS MANAGEMENT =========================
+
+/**
+ * Display the comprehensive bookings management page.
+ */
+function puzzlepath_bookings_page() {
+    global $wpdb;
+    $bookings_table = $wpdb->prefix . 'pp_bookings';
+    $events_table = $wpdb->prefix . 'pp_events';
+    $coupons_table = $wpdb->prefix . 'pp_coupons';
+    
+    // Handle actions
+    if (isset($_GET['action']) && isset($_GET['booking_id'])) {
+        $booking_id = intval($_GET['booking_id']);
+        
+        switch ($_GET['action']) {
+            case 'refund':
+                if (isset($_GET['_wpnonce']) && wp_verify_nonce($_GET['_wpnonce'], 'puzzlepath_refund_' . $booking_id)) {
+                    $result = puzzlepath_process_refund($booking_id);
+                    if ($result['success']) {
+                        wp_redirect(admin_url('admin.php?page=puzzlepath-bookings&message=refunded'));
+                    } else {
+                        wp_redirect(admin_url('admin.php?page=puzzlepath-bookings&error=' . urlencode($result['error'])));
+                    }
+                    exit;
+                }
+                break;
+                
+            case 'resend_email':
+                if (isset($_GET['_wpnonce']) && wp_verify_nonce($_GET['_wpnonce'], 'puzzlepath_resend_' . $booking_id)) {
+                    puzzlepath_resend_confirmation_email($booking_id);
+                    wp_redirect(admin_url('admin.php?page=puzzlepath-bookings&message=email_sent'));
+                    exit;
+                }
+                break;
+        }
+    }
+    
+    // Handle bulk actions
+    if (isset($_POST['action']) && $_POST['action'] !== '-1' && isset($_POST['booking_ids'])) {
+        check_admin_referer('bulk-bookings');
+        $action = sanitize_text_field($_POST['action']);
+        $booking_ids = array_map('intval', $_POST['booking_ids']);
+        
+        switch ($action) {
+            case 'bulk_refund':
+                $refunded_count = 0;
+                foreach ($booking_ids as $booking_id) {
+                    $result = puzzlepath_process_refund($booking_id);
+                    if ($result['success']) $refunded_count++;
+                }
+                wp_redirect(admin_url('admin.php?page=puzzlepath-bookings&message=bulk_refunded&count=' . $refunded_count));
+                exit;
+                break;
+                
+            case 'bulk_email':
+                foreach ($booking_ids as $booking_id) {
+                    puzzlepath_resend_confirmation_email($booking_id);
+                }
+                wp_redirect(admin_url('admin.php?page=puzzlepath-bookings&message=bulk_emails_sent&count=' . count($booking_ids)));
+                exit;
+                break;
+        }
+    }
+    
+    // Handle CSV export
+    if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+        puzzlepath_export_bookings_csv();
+        exit;
+    }
+    
+    // Get filter parameters
+    $status_filter = isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '';
+    $event_filter = isset($_GET['event_id']) ? intval($_GET['event_id']) : '';
+    $hunt_filter = isset($_GET['hunt_code']) ? sanitize_text_field($_GET['hunt_code']) : '';
+    $date_from = isset($_GET['date_from']) ? sanitize_text_field($_GET['date_from']) : '';
+    $date_to = isset($_GET['date_to']) ? sanitize_text_field($_GET['date_to']) : '';
+    $search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
+    
+    // Build query
+    $where_clauses = [];
+    $where_values = [];
+    
+    if ($status_filter) {
+        $where_clauses[] = 'b.payment_status = %s';
+        $where_values[] = $status_filter;
+    }
+    
+    if ($event_filter) {
+        $where_clauses[] = 'b.event_id = %d';
+        $where_values[] = $event_filter;
+    }
+    
+    if ($hunt_filter) {
+        $where_clauses[] = 'e.hunt_code = %s';
+        $where_values[] = $hunt_filter;
+    }
+    
+    if ($date_from) {
+        $where_clauses[] = 'DATE(b.created_at) >= %s';
+        $where_values[] = $date_from;
+    }
+    
+    if ($date_to) {
+        $where_clauses[] = 'DATE(b.created_at) <= %s';
+        $where_values[] = $date_to;
+    }
+    
+    if ($search) {
+        $where_clauses[] = '(b.customer_name LIKE %s OR b.customer_email LIKE %s OR b.booking_code LIKE %s)';
+        $search_term = '%' . $wpdb->esc_like($search) . '%';
+        $where_values[] = $search_term;
+        $where_values[] = $search_term;
+        $where_values[] = $search_term;
+    }
+    
+    $where_sql = '';
+    if (!empty($where_clauses)) {
+        $where_sql = 'WHERE ' . implode(' AND ', $where_clauses);
+    }
+    
+    // Pagination
+    $items_per_page = 20;
+    $current_page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+    $offset = ($current_page - 1) * $items_per_page;
+    
+    // Get total count for pagination
+    $count_query = "SELECT COUNT(*) FROM $bookings_table b 
+                   LEFT JOIN $events_table e ON b.event_id = e.id 
+                   LEFT JOIN $coupons_table c ON b.coupon_id = c.id 
+                   $where_sql";
+    
+    if (!empty($where_values)) {
+        $total_items = $wpdb->get_var($wpdb->prepare($count_query, $where_values));
+    } else {
+        $total_items = $wpdb->get_var($count_query);
+    }
+    
+    $total_pages = ceil($total_items / $items_per_page);
+    
+    // Get bookings
+    $query = "SELECT b.*, e.title as event_title, e.hunt_code, e.hunt_name, e.event_date, c.code as coupon_code
+             FROM $bookings_table b 
+             LEFT JOIN $events_table e ON b.event_id = e.id
+             LEFT JOIN $coupons_table c ON b.coupon_id = c.id
+             $where_sql
+             ORDER BY b.created_at DESC
+             LIMIT %d OFFSET %d";
+    
+    $query_values = array_merge($where_values, [$items_per_page, $offset]);
+    $bookings = $wpdb->get_results($wpdb->prepare($query, $query_values));
+    
+    // Get summary statistics
+    $stats = puzzlepath_get_booking_stats($where_sql, $where_values);
+    
+    ?>
+    <div class="wrap">
+        <h1>Bookings Management</h1>
+        
+        <?php if (isset($_GET['message'])): ?>
+            <div class="notice notice-success is-dismissible">
+                <p>
+                    <?php 
+                    switch ($_GET['message']) {
+                        case 'refunded':
+                            echo 'Booking refunded successfully.';
+                            break;
+                        case 'email_sent':
+                            echo 'Confirmation email sent successfully.';
+                            break;
+                        case 'bulk_refunded':
+                            $count = isset($_GET['count']) ? intval($_GET['count']) : 0;
+                            echo sprintf('%d booking(s) refunded successfully.', $count);
+                            break;
+                        case 'bulk_emails_sent':
+                            $count = isset($_GET['count']) ? intval($_GET['count']) : 0;
+                            echo sprintf('Confirmation emails sent for %d booking(s).', $count);
+                            break;
+                    }
+                    ?>
+                </p>
+            </div>
+        <?php endif; ?>
+        
+        <?php if (isset($_GET['error'])): ?>
+            <div class="notice notice-error is-dismissible">
+                <p><?php echo esc_html(urldecode($_GET['error'])); ?></p>
+            </div>
+        <?php endif; ?>
+        
+        <!-- Summary Statistics -->
+        <div class="booking-stats" style="display: flex; gap: 20px; margin-bottom: 20px;">
+            <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #2271b1; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h3 style="margin: 0; color: #2271b1;">Total Bookings</h3>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo $stats['total_bookings']; ?></p>
+            </div>
+            <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #00a32a; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h3 style="margin: 0; color: #00a32a;">Total Revenue</h3>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;">$<?php echo number_format($stats['total_revenue'], 2); ?></p>
+            </div>
+            <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #dba617; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h3 style="margin: 0; color: #dba617;">Pending Payments</h3>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo $stats['pending_payments']; ?></p>
+            </div>
+            <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #d63638; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h3 style="margin: 0; color: #d63638;">Total Participants</h3>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo $stats['total_participants']; ?></p>
+            </div>
+        </div>
+        
+        <!-- Filters -->
+        <div class="tablenav top">
+            <div class="alignleft actions">
+                <form method="get" style="display: inline-flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <input type="hidden" name="page" value="puzzlepath-bookings">
+                    
+                    <select name="status">
+                        <option value="">All Statuses</option>
+                        <option value="pending" <?php selected($status_filter, 'pending'); ?>>Pending</option>
+                        <option value="succeeded" <?php selected($status_filter, 'succeeded'); ?>>Succeeded</option>
+                        <option value="failed" <?php selected($status_filter, 'failed'); ?>>Failed</option>
+                        <option value="refunded" <?php selected($status_filter, 'refunded'); ?>>Refunded</option>
+                    </select>
+                    
+                    <select name="event_id">
+                        <option value="">All Events</option>
+                        <?php
+                        $events = $wpdb->get_results("SELECT id, title FROM $events_table ORDER BY title");
+                        foreach ($events as $event) {
+                            echo '<option value="' . $event->id . '"' . selected($event_filter, $event->id, false) . '>' . esc_html($event->title) . '</option>';
+                        }
+                        ?>
+                    </select>
+                    
+                    <select name="hunt_code">
+                        <option value="">All Hunts</option>
+                        <?php
+                        $hunts = $wpdb->get_results("SELECT DISTINCT hunt_code, hunt_name FROM $events_table WHERE hunt_code IS NOT NULL AND hunt_code != '' ORDER BY hunt_code");
+                        foreach ($hunts as $hunt) {
+                            $label = $hunt->hunt_name ? $hunt->hunt_name . ' (' . $hunt->hunt_code . ')' : $hunt->hunt_code;
+                            echo '<option value="' . esc_attr($hunt->hunt_code) . '"' . selected($hunt_filter, $hunt->hunt_code, false) . '>' . esc_html($label) . '</option>';
+                        }
+                        ?>
+                    </select>
+                    
+                    <input type="date" name="date_from" value="<?php echo esc_attr($date_from); ?>" placeholder="From Date">
+                    <input type="date" name="date_to" value="<?php echo esc_attr($date_to); ?>" placeholder="To Date">
+                    
+                    <input type="search" name="s" value="<?php echo esc_attr($search); ?>" placeholder="Search bookings...">
+                    
+                    <input type="submit" class="button" value="Filter">
+                    
+                    <?php if ($status_filter || $event_filter || $hunt_filter || $date_from || $date_to || $search): ?>
+                        <a href="<?php echo admin_url('admin.php?page=puzzlepath-bookings'); ?>" class="button">Clear Filters</a>
+                    <?php endif; ?>
+                </form>
+            </div>
+            
+            <div class="alignright actions">
+                <a href="<?php echo admin_url('admin.php?page=puzzlepath-bookings&export=csv&' . http_build_query($_GET)); ?>" class="button">Export CSV</a>
+            </div>
+        </div>
+        
+        <!-- Bookings Table -->
+        <form method="post">
+            <?php wp_nonce_field('bulk-bookings'); ?>
+            
+            <div class="tablenav top">
+                <div class="alignleft actions bulkactions">
+                    <select name="action">
+                        <option value="-1">Bulk Actions</option>
+                        <option value="bulk_refund">Refund Selected</option>
+                        <option value="bulk_email">Resend Confirmation Emails</option>
+                    </select>
+                    <input type="submit" class="button action" value="Apply">
+                </div>
+            </div>
+            
+            <table class="wp-list-table widefat fixed striped">
+                <thead>
+                    <tr>
+                        <td class="manage-column column-cb check-column"><input type="checkbox" id="cb-select-all-1"></td>
+                        <th>Booking Code</th>
+                        <th>Customer</th>
+                        <th>Event</th>
+                        <th>Hunt</th>
+                        <th>Tickets</th>
+                        <th>Total</th>
+                        <th>Status</th>
+                        <th>Date</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($bookings)): ?>
+                        <tr>
+                            <td colspan="10" style="text-align: center; padding: 20px;">No bookings found.</td>
+                        </tr>
+                    <?php else: ?>
+                        <?php foreach ($bookings as $booking): ?>
+                            <tr>
+                                <th class="check-column"><input type="checkbox" name="booking_ids[]" value="<?php echo $booking->id; ?>"></th>
+                                <td><strong><?php echo esc_html($booking->booking_code); ?></strong></td>
+                                <td>
+                                    <strong><?php echo esc_html($booking->customer_name); ?></strong><br>
+                                    <small><?php echo esc_html($booking->customer_email); ?></small>
+                                </td>
+                                <td>
+                                    <?php echo esc_html($booking->event_title); ?><br>
+                                    <?php if ($booking->event_date): ?>
+                                        <small><?php echo date('M j, Y g:i A', strtotime($booking->event_date)); ?></small>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php 
+                                    if ($booking->hunt_name) {
+                                        echo esc_html($booking->hunt_name);
+                                        if ($booking->hunt_code) {
+                                            echo '<br><small>(' . esc_html($booking->hunt_code) . ')</small>';
+                                        }
+                                    } elseif ($booking->hunt_code) {
+                                        echo esc_html($booking->hunt_code);
+                                    } else {
+                                        echo 'N/A';
+                                    }
+                                    ?>
+                                </td>
+                                <td><?php echo $booking->tickets; ?></td>
+                                <td>$<?php echo number_format($booking->total_price, 2); ?>
+                                    <?php if ($booking->coupon_code): ?>
+                                        <br><small>Coupon: <?php echo esc_html($booking->coupon_code); ?></small>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php 
+                                    $status_colors = [
+                                        'pending' => '#dba617',
+                                        'succeeded' => '#00a32a', 
+                                        'failed' => '#d63638',
+                                        'refunded' => '#8c8f94'
+                                    ];
+                                    $status_color = isset($status_colors[$booking->payment_status]) ? $status_colors[$booking->payment_status] : '#8c8f94';
+                                    ?>
+                                    <span style="background: <?php echo $status_color; ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
+                                        <?php echo esc_html($booking->payment_status); ?>
+                                    </span>
+                                </td>
+                                <td><?php echo date('M j, Y', strtotime($booking->created_at)); ?></td>
+                                <td>
+                                    <a href="#" onclick="showBookingDetails(<?php echo $booking->id; ?>); return false;" title="View Details">👁️</a>
+                                    <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=resend_email&booking_id=' . $booking->id), 'puzzlepath_resend_' . $booking->id); ?>" title="Resend Email">📧</a>
+                                    <?php if ($booking->payment_status === 'succeeded'): ?>
+                                        <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=refund&booking_id=' . $booking->id), 'puzzlepath_refund_' . $booking->id); ?>" 
+                                           onclick="return confirm('Are you sure you want to refund this booking?');" title="Refund">💸</a>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+            
+            <!-- Pagination -->
+            <?php if ($total_pages > 1): ?>
+                <div class="tablenav bottom">
+                    <div class="tablenav-pages">
+                        <span class="displaying-num"><?php echo $total_items; ?> items</span>
+                        <?php
+                        $page_links = paginate_links(array(
+                            'base' => add_query_arg('paged', '%#%'),
+                            'format' => '',
+                            'prev_text' => __('&laquo;'),
+                            'next_text' => __('&raquo;'),
+                            'total' => $total_pages,
+                            'current' => $current_page
+                        ));
+                        echo $page_links;
+                        ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+        </form>
+    </div>
+    
+    <!-- Booking Details Modal -->
+    <div id="booking-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+        <div style="background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 5px;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;" onclick="closeBookingDetails()">&times;</span>
+            <div id="booking-details-content">
+                Loading...
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    jQuery(document).ready(function($) {
+        // Select all functionality
+        $('#cb-select-all-1').on('click', function() {
+            $('input[name="booking_ids[]"]').prop('checked', this.checked);
+        });
+    });
+    
+    function showBookingDetails(bookingId) {
+        document.getElementById('booking-details-modal').style.display = 'block';
+        document.getElementById('booking-details-content').innerHTML = 'Loading...';
+        
+        // AJAX call to get booking details
+        jQuery.post(ajaxurl, {
+            action: 'get_booking_details',
+            booking_id: bookingId,
+            nonce: '<?php echo wp_create_nonce('booking_details_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                document.getElementById('booking-details-content').innerHTML = response.data;
+            } else {
+                document.getElementById('booking-details-content').innerHTML = 'Error loading booking details.';
+            }
+        });
+    }
+    
+    function closeBookingDetails() {
+        document.getElementById('booking-details-modal').style.display = 'none';
+    }
+    
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        var modal = document.getElementById('booking-details-modal');
+        if (event.target == modal) {
+            modal.style.display = 'none';
+        }
+    }
+    </script>
+    <?php
+}
+
+/**
+ * Get booking statistics
+ */
+function puzzlepath_get_booking_stats($where_sql = '', $where_values = []) {
+    global $wpdb;
+    $bookings_table = $wpdb->prefix . 'pp_bookings';
+    $events_table = $wpdb->prefix . 'pp_events';
+    
+    $base_query = "FROM $bookings_table b LEFT JOIN $events_table e ON b.event_id = e.id $where_sql";
+    
+    $stats = [];
+    
+    // Total bookings
+    $query = "SELECT COUNT(*) $base_query";
+    $stats['total_bookings'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, $where_values));
+    
+    // Total revenue (succeeded bookings only)
+    $revenue_where = $where_sql ? $where_sql . " AND b.payment_status = 'succeeded'" : "WHERE b.payment_status = 'succeeded'";
+    $query = "SELECT COALESCE(SUM(b.total_price), 0) FROM $bookings_table b LEFT JOIN $events_table e ON b.event_id = e.id $revenue_where";
+    $stats['total_revenue'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, array_merge($where_values, ['succeeded'])));
+    
+    // Pending payments
+    $pending_where = $where_sql ? $where_sql . " AND b.payment_status = 'pending'" : "WHERE b.payment_status = 'pending'";
+    $query = "SELECT COUNT(*) FROM $bookings_table b LEFT JOIN $events_table e ON b.event_id = e.id $pending_where";
+    $stats['pending_payments'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, array_merge($where_values, ['pending'])));
+    
+    // Total participants
+    $query = "SELECT COALESCE(SUM(b.tickets), 0) $base_query";
+    $stats['total_participants'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, $where_values));
+    
+    return $stats;
+}
+
+/**
+ * Process refund through Stripe
+ */
+function puzzlepath_process_refund($booking_id) {
+    global $wpdb;
+    
+    $booking = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}pp_bookings WHERE id = %d", 
+        $booking_id
+    ));
+    
+    if (!$booking || $booking->payment_status !== 'succeeded') {
+        return ['success' => false, 'error' => 'Booking not found or not eligible for refund.'];
+    }
+    
+    if (!class_exists('\Stripe\Stripe')) {
+        return ['success' => false, 'error' => 'Stripe library not available.'];
+    }
+    
+    try {
+        // Get Stripe keys
+        $test_mode = get_option('puzzlepath_stripe_test_mode', true);
+        $secret_key = $test_mode ? 
+            get_option('puzzlepath_stripe_secret_key') : 
+            get_option('puzzlepath_stripe_live_secret_key');
+        
+        \Stripe\Stripe::setApiKey($secret_key);
+        
+        // Create refund
+        $refund = \Stripe\Refund::create([
+            'payment_intent' => $booking->stripe_payment_intent_id,
+            'reason' => 'requested_by_customer'
+        ]);
+        
+        if ($refund->status === 'succeeded') {
+            // Update booking status
+            $wpdb->update(
+                $wpdb->prefix . 'pp_bookings',
+                ['payment_status' => 'refunded'],
+                ['id' => $booking_id]
+            );
+            
+            // Restore event seats
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->prefix}pp_events SET seats = seats + %d WHERE id = %d",
+                $booking->tickets,
+                $booking->event_id
+            ));
+            
+            return ['success' => true];
+        } else {
+            return ['success' => false, 'error' => 'Refund failed: ' . $refund->failure_reason];
+        }
+        
+    } catch (Exception $e) {
+        return ['success' => false, 'error' => 'Refund error: ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Resend confirmation email
+ */
+function puzzlepath_resend_confirmation_email($booking_id) {
+    global $wpdb;
+    
+    $booking = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}pp_bookings WHERE id = %d", 
+        $booking_id
+    ));
+    
+    if ($booking && class_exists('PuzzlePath_Stripe_Integration')) {
+        $stripe_instance = PuzzlePath_Stripe_Integration::get_instance();
+        if (method_exists($stripe_instance, 'send_confirmation_email')) {
+            // Use reflection to call private method
+            $reflection = new ReflectionClass($stripe_instance);
+            $method = $reflection->getMethod('send_confirmation_email');
+            $method->setAccessible(true);
+            $method->invoke($stripe_instance, $booking, $booking->booking_code);
+        }
+    }
+}
+
+/**
+ * Export bookings to CSV
+ */
+function puzzlepath_export_bookings_csv() {
+    global $wpdb;
+    $bookings_table = $wpdb->prefix . 'pp_bookings';
+    $events_table = $wpdb->prefix . 'pp_events';
+    $coupons_table = $wpdb->prefix . 'pp_coupons';
+    
+    // Apply same filters as the main page
+    $where_clauses = [];
+    $where_values = [];
+    
+    // ... (copy filter logic from main function)
+    
+    $where_sql = '';
+    if (!empty($where_clauses)) {
+        $where_sql = 'WHERE ' . implode(' AND ', $where_clauses);
+    }
+    
+    $query = "SELECT b.*, e.title as event_title, e.hunt_code, e.hunt_name, e.event_date, c.code as coupon_code
+             FROM $bookings_table b 
+             LEFT JOIN $events_table e ON b.event_id = e.id
+             LEFT JOIN $coupons_table c ON b.coupon_id = c.id
+             $where_sql
+             ORDER BY b.created_at DESC";
+    
+    $bookings = empty($where_values) ? $wpdb->get_results($query) : $wpdb->get_results($wpdb->prepare($query, $where_values));
+    
+    // Set headers for CSV download
+    header('Content-Type: text/csv');
+    header('Content-Disposition: attachment; filename="puzzlepath-bookings-' . date('Y-m-d-H-i-s') . '.csv"');
+    
+    $output = fopen('php://output', 'w');
+    
+    // CSV headers
+    fputcsv($output, [
+        'Booking ID',
+        'Booking Code', 
+        'Customer Name',
+        'Customer Email',
+        'Event Title',
+        'Hunt Code',
+        'Hunt Name',
+        'Event Date',
+        'Tickets',
+        'Total Price',
+        'Coupon Code',
+        'Payment Status',
+        'Booking Date',
+        'Participant Names'
+    ]);
+    
+    // CSV data
+    foreach ($bookings as $booking) {
+        fputcsv($output, [
+            $booking->id,
+            $booking->booking_code,
+            $booking->customer_name,
+            $booking->customer_email,
+            $booking->event_title,
+            $booking->hunt_code,
+            $booking->hunt_name,
+            $booking->event_date ? date('Y-m-d H:i:s', strtotime($booking->event_date)) : '',
+            $booking->tickets,
+            $booking->total_price,
+            $booking->coupon_code,
+            $booking->payment_status,
+            $booking->created_at,
+            $booking->participant_names
+        ]);
+    }
+    
+    fclose($output);
+}
+
+/**
+ * AJAX handler for booking details
+ */
+function puzzlepath_get_booking_details_ajax() {
+    check_ajax_referer('booking_details_nonce', 'nonce');
+    
+    if (!current_user_can('manage_options')) {
+        wp_die('Insufficient permissions');
+    }
+    
+    global $wpdb;
+    $booking_id = intval($_POST['booking_id']);
+    
+    $booking = $wpdb->get_row($wpdb->prepare(
+        "SELECT b.*, e.title as event_title, e.hunt_code, e.hunt_name, e.event_date, e.location, c.code as coupon_code, c.discount_percent
+         FROM {$wpdb->prefix}pp_bookings b 
+         LEFT JOIN {$wpdb->prefix}pp_events e ON b.event_id = e.id
+         LEFT JOIN {$wpdb->prefix}pp_coupons c ON b.coupon_id = c.id
+         WHERE b.id = %d", 
+        $booking_id
+    ));
+    
+    if (!$booking) {
+        wp_send_json_error('Booking not found');
+        return;
+    }
+    
+    ob_start();
+    ?>
+    <h2>Booking Details #<?php echo $booking->id; ?></h2>
+    
+    <table class="form-table">
+        <tr>
+            <th>Booking Code:</th>
+            <td><strong><?php echo esc_html($booking->booking_code); ?></strong></td>
+        </tr>
+        <tr>
+            <th>Customer:</th>
+            <td><?php echo esc_html($booking->customer_name); ?> (<?php echo esc_html($booking->customer_email); ?>)</td>
+        </tr>
+        <tr>
+            <th>Event:</th>
+            <td><?php echo esc_html($booking->event_title); ?></td>
+        </tr>
+        <?php if ($booking->hunt_name || $booking->hunt_code): ?>
+        <tr>
+            <th>Hunt:</th>
+            <td>
+                <?php echo esc_html($booking->hunt_name ?: $booking->hunt_code); ?>
+                <?php if ($booking->hunt_name && $booking->hunt_code): ?>
+                    (<?php echo esc_html($booking->hunt_code); ?>)
+                <?php endif; ?>
+            </td>
+        </tr>
+        <?php endif; ?>
+        <?php if ($booking->event_date): ?>
+        <tr>
+            <th>Event Date:</th>
+            <td><?php echo date('F j, Y, g:i A', strtotime($booking->event_date)); ?></td>
+        </tr>
+        <?php endif; ?>
+        <?php if ($booking->location): ?>
+        <tr>
+            <th>Location:</th>
+            <td><?php echo esc_html($booking->location); ?></td>
+        </tr>
+        <?php endif; ?>
+        <tr>
+            <th>Tickets:</th>
+            <td><?php echo $booking->tickets; ?></td>
+        </tr>
+        <tr>
+            <th>Total Price:</th>
+            <td>$<?php echo number_format($booking->total_price, 2); ?></td>
+        </tr>
+        <?php if ($booking->coupon_code): ?>
+        <tr>
+            <th>Coupon:</th>
+            <td><?php echo esc_html($booking->coupon_code); ?> (<?php echo $booking->discount_percent; ?>% off)</td>
+        </tr>
+        <?php endif; ?>
+        <tr>
+            <th>Payment Status:</th>
+            <td>
+                <span style="background: <?php 
+                    echo $booking->payment_status === 'succeeded' ? '#00a32a' : 
+                         ($booking->payment_status === 'pending' ? '#dba617' : '#d63638'); 
+                ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
+                    <?php echo esc_html($booking->payment_status); ?>
+                </span>
+            </td>
+        </tr>
+        <?php if ($booking->stripe_payment_intent_id): ?>
+        <tr>
+            <th>Stripe Payment ID:</th>
+            <td><code><?php echo esc_html($booking->stripe_payment_intent_id); ?></code></td>
+        </tr>
+        <?php endif; ?>
+        <tr>
+            <th>Booking Date:</th>
+            <td><?php echo date('F j, Y, g:i A', strtotime($booking->created_at)); ?></td>
+        </tr>
+        <?php if ($booking->participant_names): ?>
+        <tr>
+            <th>Participant Names:</th>
+            <td><?php echo nl2br(esc_html($booking->participant_names)); ?></td>
+        </tr>
+        <?php endif; ?>
+    </table>
+    
+    <div style="margin-top: 20px;">
+        <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=resend_email&booking_id=' . $booking->id), 'puzzlepath_resend_' . $booking->id); ?>" class="button">Resend Confirmation Email</a>
+        <?php if ($booking->payment_status === 'succeeded'): ?>
+            <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=refund&booking_id=' . $booking->id), 'puzzlepath_refund_' . $booking->id); ?>" 
+               class="button button-secondary" onclick="return confirm('Are you sure you want to refund this booking?');">Process Refund</a>
+        <?php endif; ?>
+    </div>
+    <?php
+    
+    $content = ob_get_clean();
+    wp_send_json_success($content);
+}
+add_action('wp_ajax_get_booking_details', 'puzzlepath_get_booking_details_ajax');
