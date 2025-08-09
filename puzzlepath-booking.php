@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath with unified app integration.
- * Version: 2.5.1
+ * Version: 2.5.2
  * Author: Andrew Baillie
  */
 
@@ -92,7 +92,7 @@ function puzzlepath_activate() {
         FROM $bookings_table b
         LEFT JOIN $events_table e ON b.event_id = e.id");
     
-    update_option('puzzlepath_booking_version', '2.5.1');
+    update_option('puzzlepath_booking_version', '2.5.2');
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 
@@ -101,7 +101,7 @@ register_activation_hook(__FILE__, 'puzzlepath_activate');
  */
 function puzzlepath_update_db_check() {
     $current_version = get_option('puzzlepath_booking_version', '1.0');
-    if (version_compare($current_version, '2.5.1', '<')) {
+    if (version_compare($current_version, '2.5.2', '<')) {
         puzzlepath_activate();
     }
 }
@@ -147,7 +147,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form-style',
             plugin_dir_url(__FILE__) . 'css/booking-form.css',
             array(),
-            '2.5.1'
+            '2.5.2'
         );
         
         wp_enqueue_script('jquery');
@@ -157,7 +157,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form',
             plugin_dir_url(__FILE__) . 'js/booking-form.js',
             array('jquery'),
-            '2.5.1',
+            '2.5.2',
             true
         );
         
@@ -165,7 +165,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-stripe-payment',
             plugin_dir_url(__FILE__) . 'js/stripe-payment.js',
             array('jquery', 'stripe-js'),
-            '2.5.1',
+            '2.5.2',
             true
         );
 
@@ -1095,6 +1095,27 @@ function puzzlepath_bookings_page() {
     $date_to = isset($_GET['date_to']) ? sanitize_text_field($_GET['date_to']) : '';
     $search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
     
+    // Get sorting parameters
+    $orderby = isset($_GET['orderby']) ? sanitize_text_field($_GET['orderby']) : 'created_at';
+    $order = isset($_GET['order']) && $_GET['order'] === 'asc' ? 'ASC' : 'DESC';
+    
+    // Validate orderby parameter
+    $allowed_columns = [
+        'id' => 'b.id',
+        'booking_code' => 'b.booking_code',
+        'customer_name' => 'b.customer_name',
+        'customer_email' => 'b.customer_email',
+        'event_title' => 'e.title',
+        'hunt_name' => 'e.hunt_name',
+        'tickets' => 'b.tickets',
+        'total_price' => 'b.total_price',
+        'payment_status' => 'b.payment_status',
+        'created_at' => 'b.created_at',
+        'event_date' => 'e.event_date'
+    ];
+    
+    $order_column = isset($allowed_columns[$orderby]) ? $allowed_columns[$orderby] : 'b.created_at';
+    
     // Build query
     $where_clauses = [];
     $where_values = [];
@@ -1162,7 +1183,7 @@ function puzzlepath_bookings_page() {
              LEFT JOIN $events_table e ON b.event_id = e.id
              LEFT JOIN $coupons_table c ON b.coupon_id = c.id
              $where_sql
-             ORDER BY b.created_at DESC
+             ORDER BY $order_column $order
              LIMIT %d OFFSET %d";
     
     $query_values = array_merge($where_values, [$items_per_page, $offset]);
@@ -1298,14 +1319,54 @@ function puzzlepath_bookings_page() {
                 <thead>
                     <tr>
                         <td class="manage-column column-cb check-column"><input type="checkbox" id="cb-select-all-1"></td>
-                        <th>Booking Code</th>
-                        <th>Customer</th>
-                        <th>Event</th>
-                        <th>Hunt</th>
-                        <th>Tickets</th>
-                        <th>Total</th>
-                        <th>Status</th>
-                        <th>Date</th>
+                        <th class="manage-column sortable <?php echo ($orderby === 'booking_code') ? ($order === 'ASC' ? 'asc' : 'desc') : 'desc'; ?>">
+                            <a href="<?php echo add_query_arg(array('orderby' => 'booking_code', 'order' => ($orderby === 'booking_code' && $order === 'ASC') ? 'desc' : 'asc')); ?>">
+                                <span>Booking Code</span>
+                                <span class="sorting-indicator"></span>
+                            </a>
+                        </th>
+                        <th class="manage-column sortable <?php echo ($orderby === 'customer_name') ? ($order === 'ASC' ? 'asc' : 'desc') : 'desc'; ?>">
+                            <a href="<?php echo add_query_arg(array('orderby' => 'customer_name', 'order' => ($orderby === 'customer_name' && $order === 'ASC') ? 'desc' : 'asc')); ?>">
+                                <span>Customer</span>
+                                <span class="sorting-indicator"></span>
+                            </a>
+                        </th>
+                        <th class="manage-column sortable <?php echo ($orderby === 'event_title') ? ($order === 'ASC' ? 'asc' : 'desc') : 'desc'; ?>">
+                            <a href="<?php echo add_query_arg(array('orderby' => 'event_title', 'order' => ($orderby === 'event_title' && $order === 'ASC') ? 'desc' : 'asc')); ?>">
+                                <span>Event</span>
+                                <span class="sorting-indicator"></span>
+                            </a>
+                        </th>
+                        <th class="manage-column sortable <?php echo ($orderby === 'hunt_name') ? ($order === 'ASC' ? 'asc' : 'desc') : 'desc'; ?>">
+                            <a href="<?php echo add_query_arg(array('orderby' => 'hunt_name', 'order' => ($orderby === 'hunt_name' && $order === 'ASC') ? 'desc' : 'asc')); ?>">
+                                <span>Hunt</span>
+                                <span class="sorting-indicator"></span>
+                            </a>
+                        </th>
+                        <th class="manage-column sortable <?php echo ($orderby === 'tickets') ? ($order === 'ASC' ? 'asc' : 'desc') : 'desc'; ?>">
+                            <a href="<?php echo add_query_arg(array('orderby' => 'tickets', 'order' => ($orderby === 'tickets' && $order === 'ASC') ? 'desc' : 'asc')); ?>">
+                                <span>Tickets</span>
+                                <span class="sorting-indicator"></span>
+                            </a>
+                        </th>
+                        <th class="manage-column sortable <?php echo ($orderby === 'total_price') ? ($order === 'ASC' ? 'asc' : 'desc') : 'desc'; ?>">
+                            <a href="<?php echo add_query_arg(array('orderby' => 'total_price', 'order' => ($orderby === 'total_price' && $order === 'ASC') ? 'desc' : 'asc')); ?>">
+                                <span>Total</span>
+                                <span class="sorting-indicator"></span>
+                            </a>
+                        </th>
+                        <th class="manage-column sortable <?php echo ($orderby === 'payment_status') ? ($order === 'ASC' ? 'asc' : 'desc') : 'desc'; ?>">
+                            <a href="<?php echo add_query_arg(array('orderby' => 'payment_status', 'order' => ($orderby === 'payment_status' && $order === 'ASC') ? 'desc' : 'asc')); ?>">
+                                <span>Status</span>
+                                <span class="sorting-indicator"></span>
+                            </a>
+                        </th>
+                        <th class="manage-column sortable <?php echo ($orderby === 'created_at') ? ($order === 'ASC' ? 'asc' : 'desc') : 'desc'; ?>">
+                            <a href="<?php echo add_query_arg(array('orderby' => 'created_at', 'order' => ($orderby === 'created_at' && $order === 'ASC') ? 'desc' : 'asc')); ?>">
+                                <span>Date</span>
+                                <span class="sorting-indicator"></span>
+                            </a>
+                        </th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -1409,6 +1470,44 @@ function puzzlepath_bookings_page() {
             </div>
         </div>
     </div>
+    
+    <style>
+    .manage-column.sortable a {
+        text-decoration: none;
+        color: inherit;
+        display: block;
+        position: relative;
+    }
+    .manage-column.sortable a:hover {
+        color: #0073aa;
+    }
+    .manage-column.sortable .sorting-indicator {
+        float: right;
+        width: 0;
+        height: 0;
+        margin-top: 8px;
+        margin-right: 7px;
+    }
+    .manage-column.sortable.asc .sorting-indicator {
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-bottom: 8px solid #444;
+    }
+    .manage-column.sortable.desc .sorting-indicator {
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 8px solid #444;
+    }
+    .manage-column.sortable:not(.asc):not(.desc) .sorting-indicator {
+        opacity: 0.3;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 8px solid #444;
+    }
+    .manage-column.sortable:not(.asc):not(.desc):hover .sorting-indicator {
+        opacity: 0.8;
+    }
+    </style>
     
     <script>
     jQuery(document).ready(function($) {
