@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath with unified app integration.
- * Version: 2.4.0
+ * Version: 2.5.1
  * Author: Andrew Baillie
  */
 
@@ -92,7 +92,7 @@ function puzzlepath_activate() {
         FROM $bookings_table b
         LEFT JOIN $events_table e ON b.event_id = e.id");
     
-    update_option('puzzlepath_booking_version', '2.4.0');
+    update_option('puzzlepath_booking_version', '2.5.1');
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 
@@ -101,7 +101,7 @@ register_activation_hook(__FILE__, 'puzzlepath_activate');
  */
 function puzzlepath_update_db_check() {
     $current_version = get_option('puzzlepath_booking_version', '1.0');
-    if (version_compare($current_version, '2.4.0', '<')) {
+    if (version_compare($current_version, '2.5.1', '<')) {
         puzzlepath_activate();
     }
 }
@@ -147,7 +147,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form-style',
             plugin_dir_url(__FILE__) . 'css/booking-form.css',
             array(),
-            '2.4.0'
+            '2.5.1'
         );
         
         wp_enqueue_script('jquery');
@@ -157,7 +157,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form',
             plugin_dir_url(__FILE__) . 'js/booking-form.js',
             array('jquery'),
-            '2.4.0',
+            '2.5.1',
             true
         );
         
@@ -165,7 +165,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-stripe-payment',
             plugin_dir_url(__FILE__) . 'js/stripe-payment.js',
             array('jquery', 'stripe-js'),
-            '2.4.0',
+            '2.5.1',
             true
         );
 
