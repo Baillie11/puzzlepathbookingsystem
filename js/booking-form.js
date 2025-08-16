@@ -11,18 +11,25 @@ jQuery(document).ready(function($) {
             
             if (couponApplied) {
                 discountAmount = subtotal * (discountPercent / 100);
+                $('#discount-line').show();
+                $('#discount').text(discountAmount.toFixed(2));
+            } else {
+                $('#discount-line').hide();
             }
 
             var finalTotal = subtotal - discountAmount;
 
-            $('#total-price').text('$' + finalTotal.toFixed(2));
+            $('#subtotal').text(subtotal.toFixed(2));
+            $('#total').text(finalTotal.toFixed(2));
             
             if (couponApplied) {
-                 $('#coupon-feedback').text('Discount of ' + discountPercent + '% applied!').css('color', 'green');
+                $('#coupon-message').html('<span style="color: green;">✓ Discount of ' + discountPercent + '% applied!</span>');
             }
 
         } else {
-            $('#total-price').text('$0.00');
+            $('#subtotal').text('0.00');
+            $('#total').text('0.00');
+            $('#discount-line').hide();
         }
     }
 
@@ -45,7 +52,7 @@ jQuery(document).ready(function($) {
         couponApplied = false;
         discountPercent = 0;
         $('#coupon_code').val('');
-        $('#coupon-feedback').text('');
+        $('#coupon-message').text('');
 
 
         calculateAndDisplayTotal();
@@ -58,21 +65,21 @@ jQuery(document).ready(function($) {
     });
 
     // Handle Apply Coupon button click
-    $('#apply-coupon-btn').on('click', function() {
+    $('#apply-coupon').on('click', function() {
         var couponCode = $('#coupon_code').val().trim();
         var applyButton = $(this);
 
         if (!$('#event_id').val()) {
-            $('#coupon-feedback').text('Please select an event first.').css('color', 'red');
+            $('#coupon-message').html('<span style="color: red;">Please select an event first.</span>');
             return;
         }
         if (!couponCode) {
-            $('#coupon-feedback').text('Please enter a coupon code.').css('color', 'red');
+            $('#coupon-message').html('<span style="color: red;">Please enter a coupon code.</span>');
             return;
         }
         
         applyButton.prop('disabled', true).text('Applying...');
-        $('#coupon-feedback').text('');
+        $('#coupon-message').text('');
 
         $.ajax({
             url: puzzlepath_data.ajax_url, // CORRECT: was puzzlepath_ajax
@@ -90,18 +97,18 @@ jQuery(document).ready(function($) {
                 } else {
                     couponApplied = false;
                     discountPercent = 0;
-                    $('#coupon-feedback').text(response.data.message).css('color', 'red');
+                    $('#coupon-message').html('<span style="color: red;">' + response.data.message + '</span>');
                     calculateAndDisplayTotal(); // Recalculate to remove any previous discount
                 }
             },
             error: function() {
                 couponApplied = false;
                 discountPercent = 0;
-                $('#coupon-feedback').text('An error occurred. Please try again.').css('color', 'red');
+                $('#coupon-message').html('<span style="color: red;">An error occurred. Please try again.</span>');
                 calculateAndDisplayTotal(); // Recalculate to remove any previous discount
             },
             complete: function() {
-                applyButton.prop('disabled', false).text('Apply');
+                applyButton.prop('disabled', false).text('Apply Coupon');
             }
         });
     });

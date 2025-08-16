@@ -33,69 +33,49 @@ jQuery(document).ready(function ($) {
         }
     };
 
-    // Create and mount the individual card elements
-    var cardNumber = elements.create('cardNumber', { style: style });
-    if ($('#card-number-element').length) {
-        cardNumber.mount('#card-number-element');
+    // Create and mount the card element (single element for all card details)
+    var card = elements.create('card', { style: style });
+    if ($('#card-element').length) {
+        card.mount('#card-element');
     }
 
-    var cardExpiry = elements.create('cardExpiry', { style: style });
-    if ($('#card-expiry-element').length) {
-        cardExpiry.mount('#card-expiry-element');
-    }
-
-    var cardCvc = elements.create('cardCvc', { style: style });
-    if ($('#card-cvc-element').length) {
-        cardCvc.mount('#card-cvc-element');
-    }
-
-    // CORRECT: Create the postal code element without the invalid 'options'
-    var postalCode = elements.create('postalCode', {
-        style: style,
-        placeholder: 'Postcode',
-    });
-    if ($('#postal-code-element').length) {
-        postalCode.mount('#postal-code-element');
-    }
-
-    // Handle real-time validation errors from the card Elements.
-    var elementsToValidate = [cardNumber, cardExpiry, cardCvc, postalCode];
-    elementsToValidate.forEach(function(element) {
-        element.on('change', function(event) {
-            var displayError = document.getElementById('card-errors');
-            if (event.error) {
-                displayError.textContent = event.error.message;
-            } else {
-                displayError.textContent = '';
-            }
-        });
+    // Handle real-time validation errors from the card Element.
+    card.on('change', function(event) {
+        var displayError = document.getElementById('card-errors');
+        if (event.error) {
+            displayError.textContent = event.error.message;
+        } else {
+            displayError.textContent = '';
+        }
     });
 
     // Handle form submission.
-    var form = document.getElementById('puzzlepath-booking-form');
-    var submitButton = $('#submit-payment-btn');
+    var form = document.getElementById('booking-form');
+    var submitButton = $('#submit-payment');
 
-    form.addEventListener('submit', function(event) {
-        event.preventDefault();
-        payWithCard(stripe, cardNumber, cardExpiry, cardCvc, postalCode);
-    });
+    if (form) {
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+            payWithCard(stripe, card);
+        });
+    }
 
     submitButton.on('click', function(e) {
         e.preventDefault();
-        payWithCard(stripe, cardNumber, cardExpiry, cardCvc, postalCode);
+        payWithCard(stripe, card);
     });
 
     var bookingCode = null;
 
-    var payWithCard = function(stripe, cardNumberElement, cardExpiryElement, cardCvcElement, postalCodeElement) {
-        submitButton.prop('disabled', true);
+    var payWithCard = function(stripe, cardElement) {
+        submitButton.prop('disabled', true).text('Processing...');
 
         // Collect form data
         var bookingData = {
             event_id: $('#event_id').val(),
             tickets: $('#tickets').val(),
-            name: $('#customer_name').val(),
-            email: $('#customer_email').val(),
+            name: $('#name').val(),
+            email: $('#email').val(),
             coupon_code: $('#coupon_code').val()
         };
 
@@ -117,42 +97,42 @@ jQuery(document).ready(function ($) {
             }
             if (result.clientSecret) {
                 // Confirm the payment with the client secret
-                confirmPayment(result.clientSecret, cardNumberElement, cardExpiryElement, cardCvcElement, postalCodeElement, bookingData.email);
+                confirmPayment(result.clientSecret, cardElement, bookingData.name, bookingData.email);
             } else {
                 $('#card-errors').text(result.message || (result.data && result.data.message) || 'There was an error setting up the payment.');
-                submitButton.prop('disabled', false);
+                submitButton.prop('disabled', false).text('Book Now');
             }
         })
         .catch(function(error) {
             console.error('Error:', error);
             $('#card-errors').text('Could not connect to payment server.');
-            submitButton.prop('disabled', false);
+            submitButton.prop('disabled', false).text('Book Now');
         });
     };
 
-    var confirmPayment = function(clientSecret, cardNumberElement, cardExpiryElement, cardCvcElement, postalCodeElement, customerEmail) {
+    var confirmPayment = function(clientSecret, cardElement, customerName, customerEmail) {
         stripe.confirmCardPayment(clientSecret, {
             payment_method: {
-                card: cardNumberElement,
+                card: cardElement,
                 billing_details: {
-                    name: $('#customer_name').val(),
+                    name: customerName,
                     email: customerEmail,
                 }
             }
         }).then(function(result) {
-            var codeMsg = bookingCode ? '<p>Your unique booking code: <strong>' + bookingCode + '</strong></p>' : '';
             if (result.error) {
                 // Show error to your customer
                 $('#card-errors').text(result.error.message);
-                submitButton.prop('disabled', false);
-                // Show code on failure
-                $('#puzzlepath-booking-form').hide();
-                $('#payment-success-message').show().append(codeMsg);
+                submitButton.prop('disabled', false).text('Book Now');
             } else {
                 // The payment has been processed!
                 if (result.paymentIntent.status === 'succeeded') {
-                    $('#puzzlepath-booking-form').hide();
-                    $('#payment-success-message').show().append(codeMsg);
+                    // Show success message
+                    $('#booking-form').hide();
+                    $('#payment-success').show();
+                    if (bookingCode) {
+                        $('#booking-code').text(bookingCode);
+                    }
                 }
             }
         });
