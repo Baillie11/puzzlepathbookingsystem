@@ -102,9 +102,60 @@ function puzzlepath_activate() {
     // Fix created_at column for events table
     $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events MODIFY COLUMN created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL");
     
+    // Ensure unified app compatibility by updating existing bookings
+    puzzlepath_fix_unified_app_compatibility();
+    
     update_option('puzzlepath_booking_version', '2.7.2');
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
+
+/**
+ * Fix unified app compatibility for existing bookings
+ */
+function puzzlepath_fix_unified_app_compatibility() {
+    global $wpdb;
+    
+    // Update existing bookings to have correct hunt_id from events
+    $wpdb->query("
+        UPDATE {$wpdb->prefix}pp_bookings b 
+        LEFT JOIN {$wpdb->prefix}pp_events e ON b.event_id = e.id 
+        SET b.hunt_id = e.hunt_code 
+        WHERE b.hunt_id IS NULL OR b.hunt_id = '' OR b.hunt_id != e.hunt_code
+    ");
+    
+    // Recreate the unified view with better field mapping
+    $view_name = $wpdb->prefix . 'pp_bookings_unified';
+    $bookings_table = $wpdb->prefix . 'pp_bookings';
+    $events_table = $wpdb->prefix . 'pp_events';
+    
+    $wpdb->query("DROP VIEW IF EXISTS $view_name");
+    $wpdb->query("CREATE VIEW $view_name AS 
+        SELECT 
+            b.id,
+            b.booking_code,
+            COALESCE(b.hunt_id, e.hunt_code) as hunt_id,
+            e.hunt_code,
+            e.hunt_name,
+            e.title as event_title,
+            e.location,
+            e.event_date,
+            b.customer_name,
+            b.customer_email,
+            b.participant_names,
+            b.tickets as participant_count,
+            b.total_price,
+            b.booking_date,
+            b.created_at,
+            b.payment_status,
+            CASE 
+                WHEN b.payment_status = 'succeeded' THEN 'confirmed'
+                WHEN b.payment_status = 'pending' THEN 'pending'
+                ELSE 'cancelled'
+            END as status
+        FROM $bookings_table b
+        LEFT JOIN $events_table e ON b.event_id = e.id
+        WHERE b.payment_status IN ('succeeded', 'pending')");
+}
 
 /**
  * Check if database needs updating on plugin load.
@@ -257,7 +308,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form-style',
             plugin_dir_url(__FILE__) . 'css/booking-form.css',
             array(),
-            '2.5.2'
+            '2.7.5'
         );
         
         wp_enqueue_script('jquery');
@@ -275,24 +326,24 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-stripe-payment',
             plugin_dir_url(__FILE__) . 'js/stripe-payment.js',
             array('jquery', 'stripe-js'),
-            '2.5.2',
+            '2.7.5',
             true
         );
 
         $test_mode = get_option('puzzlepath_stripe_test_mode', true);
         $publishable_key = $test_mode ? get_option('puzzlepath_stripe_publishable_key') : get_option('puzzlepath_stripe_live_publishable_key');
 
-        wp_localize_script(
-            'puzzlepath-stripe-payment',
-            'puzzlepath_data',
-            array(
-                'ajax_url' => admin_url('admin-ajax.php'),
-                'coupon_nonce' => wp_create_nonce('puzzlepath_coupon_nonce'),
-                'publishable_key' => $publishable_key,
-                'rest_url' => rest_url('puzzlepath/v1/'),
-                'rest_nonce' => wp_create_nonce('wp_rest')
-            )
+        // Localize script for both stripe payment AND booking form
+        $localize_data = array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'coupon_nonce' => wp_create_nonce('puzzlepath_coupon_nonce'),
+            'publishable_key' => $publishable_key,
+            'rest_url' => rest_url('puzzlepath/v1/'),
+            'rest_nonce' => wp_create_nonce('wp_rest')
         );
+        
+        wp_localize_script('puzzlepath-booking-form', 'puzzlepath_data', $localize_data);
+        wp_localize_script('puzzlepath-stripe-payment', 'puzzlepath_data', $localize_data);
     }
 }
 add_action('wp_enqueue_scripts', 'puzzlepath_enqueue_scripts');
@@ -301,29 +352,51 @@ add_action('wp_enqueue_scripts', 'puzzlepath_enqueue_scripts');
  * AJAX handler for applying a coupon.
  */
 function puzzlepath_apply_coupon_callback() {
-    check_ajax_referer('puzzlepath_coupon_nonce', 'nonce');
+    // Debug: Log the request
+    error_log('PuzzlePath Coupon AJAX called. POST data: ' . print_r($_POST, true));
+    
+    try {
+        check_ajax_referer('puzzlepath_coupon_nonce', 'nonce');
+    } catch (Exception $e) {
+        error_log('PuzzlePath Coupon: Nonce verification failed: ' . $e->getMessage());
+        wp_send_json_error(['message' => 'Security verification failed.']);
+        return;
+    }
+    
     global $wpdb;
     $coupons_table = $wpdb->prefix . 'pp_coupons';
     $code = sanitize_text_field($_POST['coupon_code']);
     
+    error_log('PuzzlePath Coupon: Looking for coupon code: ' . $code);
+    
     $coupon = $wpdb->get_row($wpdb->prepare("SELECT * FROM $coupons_table WHERE code = %s", $code));
 
     if (!$coupon) {
+        error_log('PuzzlePath Coupon: Coupon not found');
         wp_send_json_error(['message' => 'Invalid coupon code.']);
         return;
     }
+    
+    error_log('PuzzlePath Coupon: Found coupon: ' . print_r($coupon, true));
+    
     if ($coupon->expires_at && strtotime($coupon->expires_at) < time()) {
+        error_log('PuzzlePath Coupon: Coupon expired');
         wp_send_json_error(['message' => 'This coupon has expired.']);
         return;
     }
     if ($coupon->max_uses > 0 && $coupon->times_used >= $coupon->max_uses) {
+        error_log('PuzzlePath Coupon: Coupon usage limit reached');
         wp_send_json_error(['message' => 'This coupon has reached its usage limit.']);
         return;
     }
-    wp_send_json_success([
+    
+    $response = [
         'discount_percent' => $coupon->discount_percent,
         'code' => $coupon->code
-    ]);
+    ];
+    
+    error_log('PuzzlePath Coupon: Success response: ' . print_r($response, true));
+    wp_send_json_success($response);
 }
 add_action('wp_ajax_apply_coupon', 'puzzlepath_apply_coupon_callback');
 add_action('wp_ajax_nopriv_apply_coupon', 'puzzlepath_apply_coupon_callback');
@@ -866,6 +939,25 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                 'callback' => array($this, 'get_booking_status'),
                 'permission_callback' => '__return_true'
             ));
+            
+            // Unified App endpoints
+            register_rest_route('puzzlepath/v1', '/bookings', array(
+                'methods' => 'GET',
+                'callback' => array($this, 'get_unified_bookings'),
+                'permission_callback' => '__return_true'
+            ));
+            
+            register_rest_route('puzzlepath/v1', '/booking/(?P<code>[a-zA-Z0-9\-]+)', array(
+                'methods' => 'GET',
+                'callback' => array($this, 'get_booking_by_code'),
+                'permission_callback' => '__return_true'
+            ));
+            
+            register_rest_route('puzzlepath/v1', '/hunts', array(
+                'methods' => 'GET',
+                'callback' => array($this, 'get_hunts_list'),
+                'permission_callback' => '__return_true'
+            ));
         }
 
         private function get_stripe_keys() {
@@ -910,6 +1002,11 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                     $total_price = $total_price - ($total_price * ($coupon->discount_percent / 100));
                     $coupon_id = $coupon->id;
                 }
+            }
+
+            // Handle free bookings (100% discount or $0 total)
+            if ($total_price <= 0) {
+                return $this->process_free_booking($event_id, $tickets, $params, $event, $coupon_id);
             }
 
             $stripe_keys = $this->get_stripe_keys();
@@ -1026,7 +1123,92 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                 $template
             );
             
-            wp_mail($to, $subject, $message);
+            // Debug logging
+            error_log('PuzzlePath Email Debug: Attempting to send email to ' . $to);
+            error_log('PuzzlePath Email Debug: Subject: ' . $subject);
+            error_log('PuzzlePath Email Debug: Message: ' . $message);
+            
+            // Add hooks to debug wp_mail
+            add_action('wp_mail_failed', function($wp_error) {
+                error_log('PuzzlePath Email Debug: wp_mail failed: ' . $wp_error->get_error_message());
+            });
+            
+            // Check current mail settings
+            error_log('PuzzlePath Email Debug: WordPress admin email: ' . get_option('admin_email'));
+            error_log('PuzzlePath Email Debug: WordPress site URL: ' . get_site_url());
+            
+            $mail_result = wp_mail($to, $subject, $message);
+            
+            if ($mail_result) {
+                error_log('PuzzlePath Email Debug: wp_mail returned TRUE - WordPress thinks email was sent');
+            } else {
+                error_log('PuzzlePath Email Debug: wp_mail returned FALSE - Email definitely failed');
+            }
+            
+            return $mail_result;
+        }
+
+        /**
+         * Process free booking (100% discount or $0 total)
+         */
+        private function process_free_booking($event_id, $tickets, $params, $event, $coupon_id) {
+            global $wpdb;
+            
+            try {
+                // Generate unique booking code
+                $booking_code = $this->generate_unique_booking_code($event);
+                
+                // Create completed booking (no payment required)
+                $booking_data = [
+                    'event_id' => $event_id,
+                    'hunt_id' => $event->hunt_code,
+                    'customer_name' => sanitize_text_field($params['name']),
+                    'customer_email' => sanitize_email($params['email']),
+                    'tickets' => $tickets,
+                    'total_price' => 0.00, // Free booking
+                    'coupon_id' => $coupon_id,
+                    'payment_status' => 'succeeded', // Mark as succeeded since no payment needed
+                    'booking_code' => $booking_code,
+                    'booking_date' => current_time('mysql')
+                ];
+                
+                $wpdb->insert("{$wpdb->prefix}pp_bookings", $booking_data);
+                $booking_id = $wpdb->insert_id;
+
+                // Update event seats immediately (no payment processing delay)
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE {$wpdb->prefix}pp_events SET seats = seats - %d WHERE id = %d",
+                    $tickets,
+                    $event_id
+                ));
+
+                // Update coupon usage if applicable
+                if ($coupon_id) {
+                    $wpdb->query($wpdb->prepare(
+                        "UPDATE {$wpdb->prefix}pp_coupons SET times_used = times_used + 1 WHERE id = %d",
+                        $coupon_id
+                    ));
+                }
+
+                // Send confirmation email
+                $booking = $wpdb->get_row($wpdb->prepare(
+                    "SELECT * FROM {$wpdb->prefix}pp_bookings WHERE id = %d",
+                    $booking_id
+                ));
+                $this->send_confirmation_email($booking, $booking_code);
+
+                // Return success response with special flag for free booking
+                return new WP_REST_Response([
+                    'success' => true,
+                    'free_booking' => true,
+                    'bookingId' => $booking_id,
+                    'bookingCode' => $booking_code,
+                    'message' => 'Booking confirmed successfully!'
+                ], 200);
+
+            } catch (Exception $e) {
+                return new WP_Error('free_booking_error', $e->getMessage(), array('status' => 500));
+            }
         }
 
         /**
@@ -1066,6 +1248,207 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                 return new WP_REST_Response(['status' => 'succeeded', 'booking_code' => $booking->booking_code], 200);
             }
             return new WP_REST_Response(['status' => $booking->payment_status], 200);
+        }
+
+        /**
+         * Get unified bookings data for the unified app
+         */
+        public function get_unified_bookings($request) {
+            global $wpdb;
+            $unified_view = $wpdb->prefix . 'pp_bookings_unified';
+            
+            // Get query parameters
+            $hunt_id = $request->get_param('hunt_id');
+            $status = $request->get_param('status'); 
+            $date_from = $request->get_param('date_from');
+            $date_to = $request->get_param('date_to');
+            $limit = intval($request->get_param('limit')) ?: 50;
+            $offset = intval($request->get_param('offset')) ?: 0;
+            $search = $request->get_param('search');
+            
+            // Build WHERE clauses
+            $where_clauses = [];
+            $where_values = [];
+            
+            if ($hunt_id) {
+                $where_clauses[] = 'hunt_id = %s';
+                $where_values[] = $hunt_id;
+            }
+            
+            if ($status) {
+                $where_clauses[] = 'status = %s';
+                $where_values[] = $status;
+            }
+            
+            if ($date_from) {
+                $where_clauses[] = 'DATE(created_at) >= %s';
+                $where_values[] = $date_from;
+            }
+            
+            if ($date_to) {
+                $where_clauses[] = 'DATE(created_at) <= %s';
+                $where_values[] = $date_to;
+            }
+            
+            if ($search) {
+                $where_clauses[] = '(customer_name LIKE %s OR customer_email LIKE %s OR booking_code LIKE %s)';
+                $search_term = '%' . $wpdb->esc_like($search) . '%';
+                $where_values[] = $search_term;
+                $where_values[] = $search_term;
+                $where_values[] = $search_term;
+            }
+            
+            $where_sql = '';
+            if (!empty($where_clauses)) {
+                $where_sql = 'WHERE ' . implode(' AND ', $where_clauses);
+            }
+            
+            // Get total count
+            $count_query = "SELECT COUNT(*) FROM $unified_view $where_sql";
+            $total_count = empty($where_values) ? 
+                $wpdb->get_var($count_query) : 
+                $wpdb->get_var($wpdb->prepare($count_query, $where_values));
+            
+            // Get bookings
+            $query = "SELECT * FROM $unified_view $where_sql ORDER BY created_at DESC LIMIT %d OFFSET %d";
+            $query_values = array_merge($where_values, [$limit, $offset]);
+            $bookings = $wpdb->get_results($wpdb->prepare($query, $query_values));
+            
+            // Format response
+            $formatted_bookings = [];
+            foreach ($bookings as $booking) {
+                $formatted_bookings[] = [
+                    'id' => intval($booking->id),
+                    'booking_code' => $booking->booking_code,
+                    'hunt_id' => $booking->hunt_id,
+                    'hunt_code' => $booking->hunt_code,
+                    'hunt_name' => $booking->hunt_name,
+                    'event_title' => $booking->event_title,
+                    'location' => $booking->location,
+                    'event_date' => $booking->event_date,
+                    'customer_name' => $booking->customer_name,
+                    'customer_email' => $booking->customer_email,
+                    'participant_names' => $booking->participant_names,
+                    'participant_count' => intval($booking->participant_count),
+                    'total_price' => floatval($booking->total_price),
+                    'booking_date' => $booking->booking_date,
+                    'created_at' => $booking->created_at,
+                    'payment_status' => $booking->payment_status,
+                    'status' => $booking->status
+                ];
+            }
+            
+            return new WP_REST_Response([
+                'bookings' => $formatted_bookings,
+                'total_count' => intval($total_count),
+                'limit' => $limit,
+                'offset' => $offset,
+                'has_more' => ($offset + $limit) < $total_count
+            ], 200);
+        }
+        
+        /**
+         * Get a specific booking by booking code
+         */
+        public function get_booking_by_code($request) {
+            global $wpdb;
+            $unified_view = $wpdb->prefix . 'pp_bookings_unified';
+            $booking_code = $request->get_param('code');
+            
+            if (!$booking_code) {
+                return new WP_Error('missing_code', 'Missing booking code parameter', array('status' => 400));
+            }
+            
+            $booking = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM $unified_view WHERE booking_code = %s",
+                $booking_code
+            ));
+            
+            if (!$booking) {
+                return new WP_Error('booking_not_found', 'Booking not found', array('status' => 404));
+            }
+            
+            $formatted_booking = [
+                'id' => intval($booking->id),
+                'booking_code' => $booking->booking_code,
+                'hunt_id' => $booking->hunt_id,
+                'hunt_code' => $booking->hunt_code,
+                'hunt_name' => $booking->hunt_name,
+                'event_title' => $booking->event_title,
+                'location' => $booking->location,
+                'event_date' => $booking->event_date,
+                'customer_name' => $booking->customer_name,
+                'customer_email' => $booking->customer_email,
+                'participant_names' => $booking->participant_names,
+                'participant_count' => intval($booking->participant_count),
+                'total_price' => floatval($booking->total_price),
+                'booking_date' => $booking->booking_date,
+                'created_at' => $booking->created_at,
+                'payment_status' => $booking->payment_status,
+                'status' => $booking->status
+            ];
+            
+            return new WP_REST_Response(['booking' => $formatted_booking], 200);
+        }
+        
+        /**
+         * Get list of available hunts/events for the unified app
+         */
+        public function get_hunts_list($request) {
+            global $wpdb;
+            $events_table = $wpdb->prefix . 'pp_events';
+            
+            // Get query parameters
+            $active_only = $request->get_param('active_only') !== 'false'; // Default to true
+            $hosting_type = $request->get_param('hosting_type');
+            
+            // Build WHERE clauses
+            $where_clauses = [];
+            $where_values = [];
+            
+            if ($active_only) {
+                $where_clauses[] = 'seats > 0';
+            }
+            
+            if ($hosting_type) {
+                $where_clauses[] = 'hosting_type = %s';
+                $where_values[] = $hosting_type;
+            }
+            
+            // Only include events with hunt codes for unified app
+            $where_clauses[] = 'hunt_code IS NOT NULL AND hunt_code != \'\''; 
+            
+            $where_sql = '';
+            if (!empty($where_clauses)) {
+                $where_sql = 'WHERE ' . implode(' AND ', $where_clauses);
+            }
+            
+            $query = "SELECT id, title, hunt_code, hunt_name, hosting_type, event_date, location, price, seats, created_at FROM $events_table $where_sql ORDER BY event_date ASC, created_at DESC";
+            
+            $events = empty($where_values) ? 
+                $wpdb->get_results($query) : 
+                $wpdb->get_results($wpdb->prepare($query, $where_values));
+            
+            $formatted_hunts = [];
+            foreach ($events as $event) {
+                $formatted_hunts[] = [
+                    'id' => intval($event->id),
+                    'title' => $event->title,
+                    'hunt_code' => $event->hunt_code,
+                    'hunt_name' => $event->hunt_name,
+                    'hosting_type' => $event->hosting_type,
+                    'event_date' => $event->event_date,
+                    'location' => $event->location,
+                    'price' => floatval($event->price),
+                    'seats_available' => intval($event->seats),
+                    'created_at' => $event->created_at
+                ];
+            }
+            
+            return new WP_REST_Response([
+                'hunts' => $formatted_hunts,
+                'total_count' => count($formatted_hunts)
+            ], 200);
         }
 
         public function stripe_settings_page_content() {
