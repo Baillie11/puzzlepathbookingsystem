@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath with unified app integration.
- * Version: 2.5.2
+ * Version: 2.7.2
  * Author: Andrew Baillie
  */
 
@@ -19,7 +19,7 @@ function puzzlepath_activate() {
     $table_name = $wpdb->prefix . 'pp_events';
     $sql = "CREATE TABLE $table_name (
         id mediumint(9) NOT NULL AUTO_INCREMENT,
-        created_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
+        created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
         title varchar(255) NOT NULL,
         hunt_code varchar(10) DEFAULT NULL,
         hunt_name varchar(255) DEFAULT NULL,
@@ -28,7 +28,8 @@ function puzzlepath_activate() {
         location varchar(255) NOT NULL,
         price float NOT NULL,
         seats int(11) NOT NULL,
-        PRIMARY KEY  (id)
+        PRIMARY KEY  (id),
+        UNIQUE KEY hunt_code (hunt_code)
     ) $charset_collate;";
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
@@ -81,6 +82,9 @@ function puzzlepath_activate() {
             b.hunt_id,
             e.hunt_code,
             e.hunt_name,
+            e.title as event_title,
+            e.location,
+            e.event_date,
             b.customer_name,
             b.customer_email,
             b.participant_names,
@@ -92,7 +96,13 @@ function puzzlepath_activate() {
         FROM $bookings_table b
         LEFT JOIN $events_table e ON b.event_id = e.id");
     
-    update_option('puzzlepath_booking_version', '2.5.2');
+    // Force database schema update for event_date column
+    $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events MODIFY COLUMN event_date datetime DEFAULT NULL");
+    
+    // Fix created_at column for events table
+    $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events MODIFY COLUMN created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL");
+    
+    update_option('puzzlepath_booking_version', '2.7.2');
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 
@@ -101,11 +111,111 @@ register_activation_hook(__FILE__, 'puzzlepath_activate');
  */
 function puzzlepath_update_db_check() {
     $current_version = get_option('puzzlepath_booking_version', '1.0');
-    if (version_compare($current_version, '2.5.2', '<')) {
+    if (version_compare($current_version, '2.7.2', '<')) {
         puzzlepath_activate();
+        // Generate hunt codes for existing events that don't have them
+        puzzlepath_generate_missing_hunt_codes();
+    }
+}   
+add_action('plugins_loaded', 'puzzlepath_update_db_check');
+
+/**
+ * Generate unique hunt code based on event details
+ * Format: First letter of each word in title + location abbreviation + sequential number
+ * Example: "Escape Room Adventure" in "Brisbane" -> "ERAB1", "ERAB2", etc.
+ */
+function puzzlepath_generate_hunt_code($event_data) {
+    global $wpdb;
+    $events_table = $wpdb->prefix . 'pp_events';
+    
+    // Get first letter of each word in title (max 3 letters)
+    $title_words = explode(' ', $event_data['title']);
+    $title_prefix = '';
+    foreach ($title_words as $word) {
+        if (strlen($title_prefix) < 3 && !empty($word)) {
+            $title_prefix .= strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $word), 0, 1));
+        }
+    }
+    
+    // Ensure we have at least 1 character from title, pad if needed
+    if (empty($title_prefix)) {
+        $title_prefix = 'E'; // Default to 'E' for Event
+    }
+    
+    // Get location abbreviation (first 2 letters, uppercase)
+    $location_prefix = strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $event_data['location']), 0, 2));
+    if (empty($location_prefix)) {
+        $location_prefix = 'XX';
+    } elseif (strlen($location_prefix) == 1) {
+        $location_prefix .= 'X';
+    }
+    
+    // Generate base pattern (e.g., "ERABR")
+    $base_pattern = $title_prefix . $location_prefix;
+    
+    // Find the next sequential number for this pattern
+    $existing_codes = $wpdb->get_col($wpdb->prepare(
+        "SELECT hunt_code FROM $events_table WHERE hunt_code LIKE %s ORDER BY hunt_code DESC",
+        $base_pattern . '%'
+    ));
+    
+    $next_number = 1;
+    if (!empty($existing_codes)) {
+        foreach ($existing_codes as $code) {
+            // Extract number from end of code
+            $number = intval(preg_replace('/[^0-9]/', '', substr($code, strlen($base_pattern))));
+            if ($number >= $next_number) {
+                $next_number = $number + 1;
+            }
+        }
+    }
+    
+    // Format as base + number (e.g., "ERABR1", "ERABR2")
+    // Keep within 10 character limit
+    $full_code = $base_pattern . $next_number;
+    if (strlen($full_code) > 10) {
+        // Truncate base pattern if needed
+        $available_chars = 10 - strlen($next_number);
+        $base_pattern = substr($base_pattern, 0, $available_chars);
+        $full_code = $base_pattern . $next_number;
+    }
+    
+    return $full_code;
+}
+
+/**
+ * Generate hunt codes for existing events that don't have them
+ */
+function puzzlepath_generate_missing_hunt_codes() {
+    global $wpdb;
+    $events_table = $wpdb->prefix . 'pp_events';
+    
+    // Get all events without hunt codes
+    $events = $wpdb->get_results(
+        "SELECT * FROM $events_table WHERE hunt_code IS NULL OR hunt_code = ''"
+    );
+    
+    foreach ($events as $event) {
+        $event_data = [
+            'title' => $event->title,
+            'location' => $event->location
+        ];
+        
+        $hunt_code = puzzlepath_generate_hunt_code($event_data);
+        
+        // Also generate a hunt name if it doesn't exist
+        $hunt_name = !empty($event->hunt_name) ? $event->hunt_name : $event->title . ' - ' . $event->location;
+        
+        $wpdb->update(
+            $events_table,
+            [
+                'hunt_code' => $hunt_code,
+                'hunt_name' => $hunt_name
+            ],
+            ['id' => $event->id]
+        );
     }
 }
-add_action('plugins_loaded', 'puzzlepath_update_db_check');
 
 /**
  * Centralized function to create all admin menus.
@@ -337,14 +447,26 @@ function puzzlepath_events_page() {
 
         $data = [
             'title' => $title,
-            'hunt_code' => $hunt_code,
-            'hunt_name' => $hunt_name,
             'location' => $location,
             'price' => $price,
             'seats' => $seats,
             'hosting_type' => $hosting_type,
             'event_date' => $event_date,
+            'created_at' => current_time('mysql'),
         ];
+        
+        // Auto-generate hunt code if not provided
+        if (empty($hunt_code)) {
+            $hunt_code = puzzlepath_generate_hunt_code(['title' => $title, 'location' => $location]);
+        }
+        
+        // Auto-generate hunt name if not provided
+        if (empty($hunt_name)) {
+            $hunt_name = $title . ' - ' . $location;
+        }
+        
+        $data['hunt_code'] = $hunt_code;
+        $data['hunt_name'] = $hunt_name;
 
         if ($id > 0) {
             $wpdb->update($table_name, $data, ['id' => $id]);
