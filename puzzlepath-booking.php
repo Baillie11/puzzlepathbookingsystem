@@ -303,7 +303,28 @@ function puzzlepath_enqueue_scripts() {
     }
 
     global $post;
+    
+    // Check multiple conditions for when to load scripts
+    $should_load_scripts = false;
+    
+    // Condition 1: Post content contains shortcode
     if ($post && has_shortcode($post->post_content, 'puzzlepath_booking_form')) {
+        $should_load_scripts = true;
+    }
+    
+    // Condition 2: Current page URL suggests it's a booking test page
+    if (strpos($_SERVER['REQUEST_URI'], 'booking') !== false || 
+        strpos($_SERVER['REQUEST_URI'], 'simple-booking-test') !== false) {
+        $should_load_scripts = true;
+    }
+    
+    // Condition 3: Query parameter indicates shortcode will be used
+    if (isset($_GET['show_booking_form']) || 
+        (isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], 'puzzlepath') !== false)) {
+        $should_load_scripts = true;
+    }
+    
+    if ($should_load_scripts) {
         wp_enqueue_style(
             'puzzlepath-booking-form-style',
             plugin_dir_url(__FILE__) . 'css/booking-form.css',
@@ -418,7 +439,7 @@ function puzzlepath_booking_form_shortcode($atts) {
     ?>
     <div id="puzzlepath-booking-form">
         <h3>Book Your PuzzlePath Experience</h3>
-        <form id="booking-form">
+        <form id="booking-form" action="" onsubmit="return false;">
             <div class="form-group">
                 <label for="event_id">Select Event:</label>
                 <select name="event_id" id="event_id" required>
@@ -1009,7 +1030,13 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                 return $this->process_free_booking($event_id, $tickets, $params, $event, $coupon_id);
             }
 
+            // Get Stripe keys and validate them before proceeding
             $stripe_keys = $this->get_stripe_keys();
+            if (empty($stripe_keys['secret'])) {
+                return new WP_Error('stripe_config_error', 'Stripe secret key not configured. Please check your Stripe settings.', array('status' => 500));
+            }
+            
+            // Set the API key for Stripe
             \Stripe\Stripe::setApiKey($stripe_keys['secret']);
 
             try {
@@ -1452,62 +1479,245 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
         }
 
         public function stripe_settings_page_content() {
+            // Check for save message
+            $message = '';
+            if (isset($_GET['settings-updated']) && $_GET['settings-updated']) {
+                $message = '<div class="notice notice-success is-dismissible"><p>Settings saved successfully!</p></div>';
+            }
+            
+            $test_mode = get_option('puzzlepath_stripe_test_mode', true);
+            $test_pub_key = get_option('puzzlepath_stripe_publishable_key', '');
+            $test_secret_key = get_option('puzzlepath_stripe_secret_key', '');
+            $live_pub_key = get_option('puzzlepath_stripe_live_publishable_key', '');
+            $live_secret_key = get_option('puzzlepath_stripe_live_secret_key', '');
+            
             ?>
             <div class="wrap">
-                <h1>Stripe Payment Settings</h1>
+                <h1>🔒 Stripe Payment Settings</h1>
+                
+                <?php echo $message; ?>
+                
+                <!-- Current Status -->
+                <div class="notice notice-info">
+                    <p><strong>Current Mode:</strong> 
+                        <?php if ($test_mode): ?>
+                            🧪 <span style="color: #d63638;">TEST MODE</span> - No real money will be processed
+                        <?php else: ?>
+                            💰 <span style="color: #00a32a;">LIVE MODE</span> - Real payments will be processed!
+                        <?php endif; ?>
+                    </p>
+                </div>
+                
                 <form method="post" action="options.php">
                     <?php settings_fields('puzzlepath_stripe_settings'); ?>
-                    <?php do_settings_sections('puzzlepath-stripe-settings'); ?>
+                    
                     <table class="form-table">
                         <tr valign="top">
-                            <th scope="row">Test Mode</th>
+                            <th scope="row">Mode Toggle</th>
                             <td>
-                                <input type="checkbox" name="puzzlepath_stripe_test_mode" value="1" 
-                                       <?php checked(get_option('puzzlepath_stripe_test_mode', true)); ?>>
-                                <p class="description">Enable test mode for development.</p>
-                            </td>
-                        </tr>
-                     
-                        <tr valign="top">
-                            <th scope="row">Test Publishable Key</th>
-                            <td><input type="text" name="puzzlepath_stripe_publishable_key" value="<?php echo esc_attr( get_option('puzzlepath_stripe_publishable_key') ); ?>" class="regular-text"/></td>
-                        </tr>
-                        
-                        <tr valign="top">
-                            <th scope="row">Test Secret Key</th>
-                            <td><input type="password" name="puzzlepath_stripe_secret_key" value="<?php echo esc_attr( get_option('puzzlepath_stripe_secret_key') ); ?>" class="regular-text"/></td>
-                        </tr>
-
-                        <tr valign="top">
-                            <th scope="row">Live Publishable Key</th>
-                            <td><input type="text" name="puzzlepath_stripe_live_publishable_key" value="<?php echo esc_attr( get_option('puzzlepath_stripe_live_publishable_key') ); ?>" class="regular-text"/></td>
-                        </tr>
-                        
-                        <tr valign="top">
-                            <th scope="row">Live Secret Key</th>
-                            <td><input type="password" name="puzzlepath_stripe_live_secret_key" value="<?php echo esc_attr( get_option('puzzlepath_stripe_live_secret_key') ); ?>" class="regular-text"/></td>
-                        </tr>
-
-                        <tr valign="top">
-                            <th scope="row">Webhook Signing Secret</th>
-                            <td>
-                                <input type="password" name="puzzlepath_stripe_webhook_secret" value="<?php echo esc_attr( get_option('puzzlepath_stripe_webhook_secret') ); ?>" class="regular-text"/>
-                                <p class="description">Get this from your Stripe webhook settings.</p>
+                                <div class="stripe-mode-toggle">
+                                    <input type="checkbox" id="stripe-mode-toggle" name="puzzlepath_stripe_test_mode" value="1" 
+                                           <?php checked($test_mode); ?> style="display: none;">
+                                    <label for="stripe-mode-toggle" class="toggle-switch">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label-left">LIVE</span>
+                                        <span class="toggle-label-right">TEST</span>
+                                    </label>
+                                </div>
+                                <p class="description">Toggle between test mode (safe for development) and live mode (real payments)</p>
                             </td>
                         </tr>
                     </table>
                     
-                    <?php submit_button(); ?>
+                    <h2>🔑 API Keys</h2>
+                    <p>Get your API keys from your <a href="https://dashboard.stripe.com/apikeys" target="_blank">Stripe Dashboard</a></p>
+                    
+                    <table class="form-table">
+                        <!-- Test Keys Section -->
+                        <tr valign="top" class="test-keys-section">
+                            <th scope="row" colspan="2"><h3 style="margin: 0; color: #d63638;">🧪 Test Keys (for development)</h3></th>
+                        </tr>
+                        <tr valign="top" class="test-keys-section">
+                            <th scope="row">Test Publishable Key</th>
+                            <td>
+                                <input type="text" name="puzzlepath_stripe_publishable_key" 
+                                       value="<?php echo esc_attr($test_pub_key); ?>" 
+                                       class="regular-text" 
+                                       placeholder="pk_test_..." 
+                                       style="font-family: monospace;"/>
+                                <p class="description">Starts with <code>pk_test_</code> - Safe to use in frontend code</p>
+                            </td>
+                        </tr>
+                        
+                        <tr valign="top" class="test-keys-section">
+                            <th scope="row">Test Secret Key</th>
+                            <td>
+                                <input type="password" name="puzzlepath_stripe_secret_key" 
+                                       value="<?php echo esc_attr($test_secret_key); ?>" 
+                                       class="regular-text" 
+                                       placeholder="sk_test_..." 
+                                       style="font-family: monospace;"/>
+                                <p class="description">Starts with <code>sk_test_</code> - Keep this secure! Used on the server only.</p>
+                            </td>
+                        </tr>
+                        
+                        <!-- Live Keys Section -->
+                        <tr valign="top" class="live-keys-section" style="border-top: 2px solid #ddd;">
+                            <th scope="row" colspan="2"><h3 style="margin: 20px 0 10px 0; color: #00a32a;">💰 Live Keys (for real payments)</h3></th>
+                        </tr>
+                        <tr valign="top" class="live-keys-section">
+                            <th scope="row">Live Publishable Key</th>
+                            <td>
+                                <input type="text" name="puzzlepath_stripe_live_publishable_key" 
+                                       value="<?php echo esc_attr($live_pub_key); ?>" 
+                                       class="regular-text" 
+                                       placeholder="pk_live_..." 
+                                       style="font-family: monospace;"/>
+                                <p class="description">Starts with <code>pk_live_</code> - Used for live payments</p>
+                            </td>
+                        </tr>
+                        
+                        <tr valign="top" class="live-keys-section">
+                            <th scope="row">Live Secret Key</th>
+                            <td>
+                                <input type="password" name="puzzlepath_stripe_live_secret_key" 
+                                       value="<?php echo esc_attr($live_secret_key); ?>" 
+                                       class="regular-text" 
+                                       placeholder="sk_live_..." 
+                                       style="font-family: monospace;"/>
+                                <p class="description">Starts with <code>sk_live_</code> - EXTREMELY SENSITIVE! Keep secure!</p>
+                            </td>
+                        </tr>
+                    </table>
+                    
+                    <h2>🎯 Key Status Check</h2>
+                    <table class="form-table">
+                        <tr>
+                            <th>Current Configuration:</th>
+                            <td>
+                                <?php 
+                                $current_pub = $test_mode ? $test_pub_key : $live_pub_key;
+                                $current_secret = $test_mode ? $test_secret_key : $live_secret_key;
+                                ?>
+                                <p><strong>Publishable Key:</strong> 
+                                    <?php if ($current_pub): ?>
+                                        ✅ Configured (<?php echo substr($current_pub, 0, 12); ?>...)
+                                    <?php else: ?>
+                                        ❌ Not configured
+                                    <?php endif; ?>
+                                </p>
+                                <p><strong>Secret Key:</strong> 
+                                    <?php if ($current_secret): ?>
+                                        ✅ Configured (<?php echo substr($current_secret, 0, 12); ?>...)
+                                    <?php else: ?>
+                                        ❌ Not configured
+                                    <?php endif; ?>
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                    
+                    <?php submit_button('💾 Save Stripe Settings', 'primary', 'submit', false); ?>
                 </form>
-
-                <h2>Webhook Setup</h2>
-                <p>For Stripe to notify your site about payment status, set up a webhook:</p>
-                <p>1. Go to your <a href="https://dashboard.stripe.com/webhooks" target="_blank">Stripe Webhooks settings</a>.</p>
-                <p>2. Add this endpoint URL:</p>
-                <p><code><?php echo home_url('/wp-json/puzzlepath/v1/stripe-webhook'); ?></code></p>
-                <p>3. Select event: <code>charge.succeeded</code></p>
-                <p>4. Copy the webhook signing secret to the field above.</p>
+                
+                <hr>
+                
+                <h2>🇦🇺 Australian Test Credit Cards</h2>
+                <table class="widefat striped">
+                    <thead>
+                        <tr><th>Purpose</th><th>Card Number</th><th>Card Type</th><th>Result</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Successful Payment</td><td><code>4000000560000004</code></td><td>Visa (AU)</td><td>✅ Approved</td></tr>
+                        <tr><td>Successful Payment</td><td><code>5200828282828210</code></td><td>Mastercard (AU)</td><td>✅ Approved</td></tr>
+                        <tr><td>Authentication Required</td><td><code>4000002500003155</code></td><td>Visa (AU)</td><td>🔐 3D Secure</td></tr>
+                        <tr><td>Declined Payment</td><td><code>4000000000000002</code></td><td>Visa</td><td>❌ Generic Decline</td></tr>
+                        <tr><td>Insufficient Funds</td><td><code>4000000000009995</code></td><td>Visa</td><td>💳 Insufficient Funds</td></tr>
+                        <tr><td>Processing Error</td><td><code>4000000000000119</code></td><td>Visa</td><td>⚠️ Processing Error</td></tr>
+                    </tbody>
+                </table>
+                <p><em>Use any future expiry date (like 12/34) and any 3-digit CVC for testing. Australian cards use AUD currency by default.</em></p>
             </div>
+            
+            <style>
+            .form-table th { width: 200px; }
+            .regular-text { width: 400px; }
+            .notice h3 { margin-top: 0; }
+            
+            /* Toggle Switch Styles */
+            .stripe-mode-toggle {
+                margin-bottom: 10px;
+            }
+            
+            .toggle-switch {
+                position: relative;
+                display: inline-block;
+                width: 120px;
+                height: 34px;
+                cursor: pointer;
+                background-color: #00a32a;
+                border-radius: 34px;
+                transition: background-color 0.3s;
+            }
+            
+            .toggle-switch:hover {
+                opacity: 0.8;
+            }
+            
+            .toggle-slider {
+                position: absolute;
+                top: 2px;
+                left: 2px;
+                width: 30px;
+                height: 30px;
+                background-color: white;
+                border-radius: 50%;
+                transition: transform 0.3s;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            }
+            
+            .toggle-label-left,
+            .toggle-label-right {
+                position: absolute;
+                top: 50%;
+                transform: translateY(-50%);
+                font-size: 12px;
+                font-weight: bold;
+                color: white;
+                pointer-events: none;
+            }
+            
+            .toggle-label-left {
+                left: 10px;
+            }
+            
+            .toggle-label-right {
+                right: 10px;
+            }
+            
+            /* When checkbox is checked (test mode) */
+            #stripe-mode-toggle:checked + .toggle-switch {
+                background-color: #d63638;
+            }
+            
+            #stripe-mode-toggle:checked + .toggle-switch .toggle-slider {
+                transform: translateX(86px);
+            }
+            </style>
+            
+            <script>
+            jQuery(document).ready(function($) {
+                // Update mode display when toggle is clicked
+                $('#stripe-mode-toggle').on('change', function() {
+                    var isTestMode = $(this).is(':checked');
+                    var modeText = isTestMode ? 
+                        '🧪 <span style="color: #d63638;">TEST MODE</span> - No real money will be processed' : 
+                        '💰 <span style="color: #00a32a;">LIVE MODE</span> - Real payments will be processed!';
+                    
+                    $('.notice-info p').html('<strong>Current Mode:</strong> ' + modeText);
+                });
+            });
+            </script>
             <?php
         }
     }
@@ -2113,6 +2323,11 @@ function puzzlepath_process_refund($booking_id) {
         $secret_key = $test_mode ? 
             get_option('puzzlepath_stripe_secret_key') : 
             get_option('puzzlepath_stripe_live_secret_key');
+        
+        // Validate secret key before setting
+        if (empty($secret_key)) {
+            return ['success' => false, 'error' => 'Stripe secret key not configured. Please check your Stripe settings.'];
+        }
         
         \Stripe\Stripe::setApiKey($secret_key);
         

@@ -86,6 +86,40 @@
     margin-bottom: 1em;
 }
 
+#payment-success {
+    background-color: #d4edda;
+    border: 2px solid #28a745;
+    border-radius: 8px;
+    padding: 2em;
+    text-align: center;
+    margin: 2em 0;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+#payment-success h3 {
+    color: #155724;
+    font-size: 1.8em;
+    margin-bottom: 0.5em;
+    font-weight: bold;
+}
+
+#payment-success p {
+    color: #155724;
+    font-size: 1.1em;
+    line-height: 1.6;
+    margin: 0.8em 0;
+}
+
+#payment-success strong {
+    background-color: #fff;
+    color: #28a745;
+    padding: 0.3em 0.6em;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 1.1em;
+    border: 1px solid #28a745;
+}
+
 #payment-success-message {
     color: #2ecc71;
     background-color: #e8f8f5;
@@ -96,4 +130,4 @@
     font-weight: bold;
     margin-top: 1em;
     display: none; /* Hidden by default */
-} 
+}
