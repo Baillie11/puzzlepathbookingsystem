@@ -3030,19 +3030,40 @@ function puzzlepath_quests_page() {
     // Handle actions
     if (isset($_GET['action'])) {
         switch ($_GET['action']) {
-            case 'delete':
-                if (isset($_GET['event_id']) && wp_verify_nonce($_GET['_wpnonce'], 'delete_quest_' . $_GET['event_id'])) {
+            case 'deactivate':
+                if (isset($_GET['event_id']) && wp_verify_nonce($_GET['_wpnonce'], 'deactivate_quest_' . $_GET['event_id'])) {
                     $event_id = intval($_GET['event_id']);
                     
-                    // Note: For events/quests, we should be careful about deletion
-                    // as they might have bookings. For now, we'll just mark as inactive
                     $wpdb->update(
                         $events_table,
                         ['hosting_type' => 'inactive'],
                         ['id' => $event_id]
                     );
                     
-                    wp_redirect(admin_url('admin.php?page=puzzlepath-quests&message=deleted'));
+                    wp_redirect(admin_url('admin.php?page=puzzlepath-quests&message=deactivated'));
+                    exit;
+                }
+                break;
+                
+            case 'activate':
+                if (isset($_GET['event_id']) && wp_verify_nonce($_GET['_wpnonce'], 'activate_quest_' . $_GET['event_id'])) {
+                    $event_id = intval($_GET['event_id']);
+                    
+                    // Get the current quest to determine what type to restore it to
+                    $quest = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$events_table} WHERE id = %d", $event_id));
+                    
+                    if ($quest) {
+                        // Default to 'self-hosted' if unsure, or 'hosted' if it has a specific event_date
+                        $new_hosting_type = $quest->event_date ? 'hosted' : 'self-hosted';
+                        
+                        $wpdb->update(
+                            $events_table,
+                            ['hosting_type' => $new_hosting_type],
+                            ['id' => $event_id]
+                        );
+                    }
+                    
+                    wp_redirect(admin_url('admin.php?page=puzzlepath-quests&message=activated'));
                     exit;
                 }
                 break;
@@ -3061,8 +3082,9 @@ function puzzlepath_quests_page() {
             COALESCE(booking_stats.paid_bookings, 0) as paid_completions,
             'quest' as quest_type,
             CASE 
-                WHEN e.hosting_type = 'hosted' THEN 1
-                ELSE 0
+                WHEN e.hosting_type IN ('hosted', 'self-hosted') THEN 1
+                WHEN e.hosting_type = 'inactive' THEN 0
+                ELSE 1
             END as is_active
         FROM {$events_table} e
         LEFT JOIN (
@@ -3096,6 +3118,8 @@ function puzzlepath_quests_page() {
                     switch($_GET['message']) {
                         case 'added': echo 'Quest created successfully!'; break;
                         case 'updated': echo 'Quest updated successfully!'; break;
+                        case 'activated': echo 'Quest activated successfully!'; break;
+                        case 'deactivated': echo 'Quest deactivated successfully!'; break;
                         case 'deleted': echo 'Quest deleted successfully!'; break;
                     }
                     ?>
@@ -3185,8 +3209,13 @@ function puzzlepath_quests_page() {
                                 <a href="#" onclick="showQuestDetails(<?php echo $quest->id; ?>); return false;" title="View Details">👁️</a>
                                 <a href="#" onclick="editQuest(<?php echo $quest->id; ?>); return false;" title="Edit Quest">✏️</a>
                                 <a href="#" onclick="manageClues(<?php echo $quest->id; ?>); return false;" title="Manage Clues">🧩</a>
-                                <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=delete&event_id=' . $quest->id), 'delete_quest_' . $quest->id); ?>" 
-                                   onclick="return confirm('Are you sure you want to deactivate this quest?');" title="Deactivate Quest">🗑️</a>
+                                <?php if ($quest->is_active): ?>
+                                    <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=deactivate&event_id=' . $quest->id), 'deactivate_quest_' . $quest->id); ?>" 
+                                       onclick="return confirm('Are you sure you want to deactivate this quest?');" title="Deactivate Quest">🚫</a>
+                                <?php else: ?>
+                                    <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=activate&event_id=' . $quest->id), 'activate_quest_' . $quest->id); ?>" 
+                                       onclick="return confirm('Are you sure you want to activate this quest?');" title="Activate Quest">✅</a>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
