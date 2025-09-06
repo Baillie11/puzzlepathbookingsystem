@@ -3014,6 +3014,129 @@ function puzzlepath_db_schema_page() {
 }
 
 /**
+ * AJAX handler for quest details
+ */
+function puzzlepath_get_quest_details_ajax() {
+    check_ajax_referer('quest_details_nonce', 'nonce');
+    
+    if (!current_user_can('manage_options')) {
+        wp_die('Insufficient permissions');
+    }
+    
+    global $wpdb;
+    $events_table = $wpdb->prefix . 'pp_events';
+    $clues_table = $wpdb->prefix . 'pp_clues';
+    $bookings_table = $wpdb->prefix . 'pp_bookings';
+    
+    $quest_id = intval($_POST['quest_id']);
+    
+    $quest = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$events_table} WHERE id = %d", 
+        $quest_id
+    ));
+    
+    if (!$quest) {
+        wp_send_json_error('Quest not found');
+        return;
+    }
+    
+    // Get clue count and booking stats
+    $clue_count = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM {$clues_table} WHERE hunt_id = %s AND is_active = 1",
+        $quest->hunt_code
+    ));
+    
+    $booking_stats = $wpdb->get_row($wpdb->prepare(
+        "SELECT COUNT(*) as total_bookings, SUM(CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END) as paid_bookings, SUM(CASE WHEN payment_status = 'paid' THEN total_price ELSE 0 END) as total_revenue FROM {$bookings_table} WHERE event_id = %d",
+        $quest_id
+    ));
+    
+    ob_start();
+    ?>
+    <h2 style="margin: 0 0 15px 0; padding-right: 40px;">Quest Details: <?php echo esc_html($quest->title); ?></h2>
+    
+    <table class="form-table" style="margin-top: 0;">
+        <tr>
+            <th>Quest Code:</th>
+            <td><strong><?php echo esc_html($quest->hunt_code); ?></strong></td>
+        </tr>
+        <tr>
+            <th>Quest Name:</th>
+            <td><?php echo esc_html($quest->title); ?></td>
+        </tr>
+        <?php if ($quest->hunt_name && $quest->hunt_name != $quest->title): ?>
+        <tr>
+            <th>Hunt Name:</th>
+            <td><?php echo esc_html($quest->hunt_name); ?></td>
+        </tr>
+        <?php endif; ?>
+        <tr>
+            <th>Location:</th>
+            <td><?php echo esc_html($quest->location); ?></td>
+        </tr>
+        <tr>
+            <th>Quest Type:</th>
+            <td><span style="background: <?php echo $quest->hosting_type === 'hosted' ? '#00a32a' : '#2271b1'; ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
+                <?php echo esc_html($quest->hosting_type === 'hosted' ? 'LIVE' : 'ANYTIME'); ?>
+            </span></td>
+        </tr>
+        <?php if ($quest->event_date): ?>
+        <tr>
+            <th>Event Date:</th>
+            <td><?php echo date('F j, Y, g:i A', strtotime($quest->event_date)); ?></td>
+        </tr>
+        <?php endif; ?>
+        <tr>
+            <th>Price:</th>
+            <td>$<?php echo number_format($quest->price, 2); ?></td>
+        </tr>
+        <tr>
+            <th>Seats Available:</th>
+            <td><?php echo $quest->seats; ?> seats</td>
+        </tr>
+        <tr>
+            <th>Number of Clues:</th>
+            <td><?php echo $clue_count ?: 0; ?> clues</td>
+        </tr>
+        <tr>
+            <th>Total Bookings:</th>
+            <td><?php echo $booking_stats->total_bookings ?: 0; ?> bookings</td>
+        </tr>
+        <tr>
+            <th>Paid Bookings:</th>
+            <td><?php echo $booking_stats->paid_bookings ?: 0; ?> paid</td>
+        </tr>
+        <tr>
+            <th>Total Revenue:</th>
+            <td>$<?php echo number_format($booking_stats->total_revenue ?: 0, 2); ?></td>
+        </tr>
+        <tr>
+            <th>Status:</th>
+            <td>
+                <span style="background: <?php echo in_array($quest->hosting_type, ['hosted', 'self-hosted']) ? '#00a32a' : '#d63638'; ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
+                    <?php echo in_array($quest->hosting_type, ['hosted', 'self-hosted']) ? 'ACTIVE' : 'INACTIVE'; ?>
+                </span>
+            </td>
+        </tr>
+        <tr>
+            <th>Created:</th>
+            <td><?php echo date('F j, Y, g:i A', strtotime($quest->created_at)); ?></td>
+        </tr>
+    </table>
+    
+    <div style="margin-top: 20px; padding: 15px 0; border-top: 1px solid #ddd; background: #f9f9f9; margin-left: -20px; margin-right: -20px; padding-left: 20px; padding-right: 20px;">
+        <button type="button" class="button button-primary" onclick="closeQuestDetails(); editQuest(<?php echo $quest->id; ?>);" style="margin-right: 10px;">Edit Quest</button>
+        <button type="button" class="button" onclick="closeQuestDetails(); manageClues(<?php echo $quest->id; ?>);">Manage Clues</button>
+        <button type="button" class="button" onclick="closeQuestDetails()">Close</button>
+    </div>
+    <?php
+    
+    $content = ob_get_clean();
+    wp_send_json_success($content);
+}
+add_action('wp_ajax_get_quest_details', 'puzzlepath_get_quest_details_ajax');
+
+/**
  * Quest Management Page
  */
 function puzzlepath_quests_page() {
@@ -3235,33 +3358,178 @@ function puzzlepath_quests_page() {
     </style>
     
     <script>
-    // JavaScript functions will be added here
+    // Quest Details Modal
     function showQuestDetails(questId) {
-        // AJAX call to get quest details
+        document.getElementById('quest-details-modal').style.display = 'block';
+        document.getElementById('quest-details-content').innerHTML = 'Loading...';
+        
         jQuery.post(ajaxurl, {
             action: 'get_quest_details',
             quest_id: questId,
             nonce: '<?php echo wp_create_nonce('quest_details_nonce'); ?>'
         }, function(response) {
             if (response.success) {
-                alert('Quest details: ' + response.data);
-                // Will implement proper modal later
+                document.getElementById('quest-details-content').innerHTML = response.data;
             } else {
-                alert('Error loading quest details.');
+                document.getElementById('quest-details-content').innerHTML = 'Error loading quest details.';
             }
         });
     }
     
+    function closeQuestDetails() {
+        document.getElementById('quest-details-modal').style.display = 'none';
+    }
+    
+    // Edit Quest Modal
     function editQuest(questId) {
-        alert('Edit quest functionality coming soon!');
+        document.getElementById('edit-quest-modal').style.display = 'block';
+        document.getElementById('edit-quest-content').innerHTML = 'Loading...';
+        
+        jQuery.post(ajaxurl, {
+            action: 'get_edit_quest_form',
+            quest_id: questId,
+            nonce: '<?php echo wp_create_nonce('edit_quest_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                document.getElementById('edit-quest-content').innerHTML = response.data;
+            } else {
+                document.getElementById('edit-quest-content').innerHTML = 'Error loading quest form.';
+            }
+        });
     }
     
+    function closeEditQuest() {
+        document.getElementById('edit-quest-modal').style.display = 'none';
+    }
+    
+    function saveQuestChanges(questId) {
+        var form = document.getElementById('edit-quest-form');
+        var formData = new FormData(form);
+        formData.append('action', 'save_quest_changes');
+        formData.append('quest_id', questId);
+        formData.append('nonce', '<?php echo wp_create_nonce('save_quest_nonce'); ?>');
+        
+        document.getElementById('quest-save-btn').disabled = true;
+        document.getElementById('quest-save-btn').textContent = 'Saving...';
+        
+        jQuery.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                if (response.success) {
+                    alert('Quest updated successfully!');
+                    closeEditQuest();
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.data);
+                    document.getElementById('quest-save-btn').disabled = false;
+                    document.getElementById('quest-save-btn').textContent = 'Save Changes';
+                }
+            },
+            error: function() {
+                alert('An error occurred while saving changes.');
+                document.getElementById('quest-save-btn').disabled = false;
+                document.getElementById('quest-save-btn').textContent = 'Save Changes';
+            }
+        });
+    }
+    
+    // Manage Clues Modal
     function manageClues(questId) {
-        alert('Clue management functionality coming soon!');
+        document.getElementById('manage-clues-modal').style.display = 'block';
+        document.getElementById('manage-clues-content').innerHTML = 'Loading...';
+        
+        jQuery.post(ajaxurl, {
+            action: 'get_quest_clues',
+            quest_id: questId,
+            nonce: '<?php echo wp_create_nonce('quest_clues_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                document.getElementById('manage-clues-content').innerHTML = response.data;
+            } else {
+                document.getElementById('manage-clues-content').innerHTML = 'Error loading clues.';
+            }
+        });
     }
     
+    function closeManageClues() {
+        document.getElementById('manage-clues-modal').style.display = 'none';
+    }
+    
+    // Add Quest Modal
     function showAddQuestModal() {
-        alert('Add quest functionality coming soon!');
+        document.getElementById('add-quest-modal').style.display = 'block';
+        document.getElementById('add-quest-content').innerHTML = 'Loading...';
+        
+        jQuery.post(ajaxurl, {
+            action: 'get_add_quest_form',
+            nonce: '<?php echo wp_create_nonce('add_quest_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                document.getElementById('add-quest-content').innerHTML = response.data;
+            } else {
+                document.getElementById('add-quest-content').innerHTML = 'Error loading form.';
+            }
+        });
+    }
+    
+    function closeAddQuest() {
+        document.getElementById('add-quest-modal').style.display = 'none';
+    }
+    
+    function createNewQuest() {
+        var form = document.getElementById('add-quest-form');
+        var formData = new FormData(form);
+        formData.append('action', 'create_new_quest');
+        formData.append('nonce', '<?php echo wp_create_nonce('create_quest_nonce'); ?>');
+        
+        document.getElementById('create-quest-btn').disabled = true;
+        document.getElementById('create-quest-btn').textContent = 'Creating...';
+        
+        jQuery.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                if (response.success) {
+                    alert('Quest created successfully!');
+                    closeAddQuest();
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.data);
+                    document.getElementById('create-quest-btn').disabled = false;
+                    document.getElementById('create-quest-btn').textContent = 'Create Quest';
+                }
+            },
+            error: function() {
+                alert('An error occurred while creating quest.');
+                document.getElementById('create-quest-btn').disabled = false;
+                document.getElementById('create-quest-btn').textContent = 'Create Quest';
+            }
+        });
+    }
+    
+    // Close modals when clicking outside
+    window.onclick = function(event) {
+        var detailsModal = document.getElementById('quest-details-modal');
+        var editModal = document.getElementById('edit-quest-modal');
+        var cluesModal = document.getElementById('manage-clues-modal');
+        var addModal = document.getElementById('add-quest-modal');
+        
+        if (event.target == detailsModal) {
+            detailsModal.style.display = 'none';
+        } else if (event.target == editModal) {
+            editModal.style.display = 'none';
+        } else if (event.target == cluesModal) {
+            cluesModal.style.display = 'none';
+        } else if (event.target == addModal) {
+            addModal.style.display = 'none';
+        }
     }
     </script>
     <?php
@@ -3271,6 +3539,45 @@ function puzzlepath_quests_page() {
  * Quest modals container
  */
 function puzzlepath_quest_modals() {
-    // Modal HTML will be added here
-    echo '<!-- Quest modals will be implemented here -->';
+    ?>
+    <!-- Quest Details Modal -->
+    <div id="quest-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 90vh; position: relative;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px;" onclick="closeQuestDetails()">&times;</span>
+            <div id="quest-details-content" style="margin-top: 10px;">
+                Loading...
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Quest Modal -->
+    <div id="edit-quest-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 1% auto 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 95vh; overflow-y: auto; position: relative;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeEditQuest()">&times;</span>
+            <div id="edit-quest-content" style="margin-top: 10px; padding-right: 10px;">
+                Loading...
+            </div>
+        </div>
+    </div>
+    
+    <!-- Manage Clues Modal -->
+    <div id="manage-clues-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 1% auto 2% auto; padding: 20px; border: 1px solid #888; width: 95%; max-width: 900px; border-radius: 5px; max-height: 95vh; overflow-y: auto; position: relative;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeManageClues()">&times;</span>
+            <div id="manage-clues-content" style="margin-top: 10px; padding-right: 10px;">
+                Loading...
+            </div>
+        </div>
+    </div>
+    
+    <!-- Add Quest Modal -->
+    <div id="add-quest-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 1% auto 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 95vh; overflow-y: auto; position: relative;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeAddQuest()">&times;</span>
+            <div id="add-quest-content" style="margin-top: 10px; padding-right: 10px;">
+                Loading...
+            </div>
+        </div>
+    </div>
+    <?php
 }
