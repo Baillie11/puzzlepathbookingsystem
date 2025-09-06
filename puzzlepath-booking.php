@@ -3022,22 +3022,25 @@ function puzzlepath_quests_page() {
     }
     
     global $wpdb;
-    $hunts_table = $wpdb->prefix . 'pp_hunts';
+    $events_table = $wpdb->prefix . 'pp_events';
     $clues_table = $wpdb->prefix . 'pp_clues';
+    $bookings_table = $wpdb->prefix . 'pp_bookings';
     $completions_table = $wpdb->prefix . 'pp_quest_completions';
     
     // Handle actions
     if (isset($_GET['action'])) {
         switch ($_GET['action']) {
             case 'delete':
-                if (isset($_GET['hunt_id']) && wp_verify_nonce($_GET['_wpnonce'], 'delete_quest_' . $_GET['hunt_id'])) {
-                    $hunt_id = intval($_GET['hunt_id']);
+                if (isset($_GET['event_id']) && wp_verify_nonce($_GET['_wpnonce'], 'delete_quest_' . $_GET['event_id'])) {
+                    $event_id = intval($_GET['event_id']);
                     
-                    // Delete clues first (foreign key constraint)
-                    $wpdb->delete($clues_table, ['hunt_id' => $hunt_id]);
-                    
-                    // Delete hunt
-                    $wpdb->delete($hunts_table, ['id' => $hunt_id]);
+                    // Note: For events/quests, we should be careful about deletion
+                    // as they might have bookings. For now, we'll just mark as inactive
+                    $wpdb->update(
+                        $events_table,
+                        ['hosting_type' => 'inactive'],
+                        ['id' => $event_id]
+                    );
                     
                     wp_redirect(admin_url('admin.php?page=puzzlepath-quests&message=deleted'));
                     exit;
@@ -3046,30 +3049,38 @@ function puzzlepath_quests_page() {
         }
     }
     
-    // Get all quests/hunts with clue counts and completion stats
+    // Get all quests/events with clue counts and booking stats
     $quests = $wpdb->get_results("
         SELECT 
-            h.*,
+            e.*,
+            e.title as quest_name,
+            e.hunt_code as quest_code,
+            e.hunt_name,
             COALESCE(clue_counts.clue_count, 0) as clue_count,
-            COALESCE(completion_stats.total_completions, 0) as total_completions,
-            COALESCE(completion_stats.avg_time, 0) as avg_completion_time
-        FROM {$hunts_table} h
+            COALESCE(booking_stats.total_bookings, 0) as total_completions,
+            COALESCE(booking_stats.paid_bookings, 0) as paid_completions,
+            'quest' as quest_type,
+            CASE 
+                WHEN e.hosting_type = 'hosted' THEN 1
+                ELSE 0
+            END as is_active
+        FROM {$events_table} e
         LEFT JOIN (
             SELECT hunt_id, COUNT(*) as clue_count 
             FROM {$clues_table} 
             WHERE is_active = 1 
             GROUP BY hunt_id
-        ) clue_counts ON h.id = clue_counts.hunt_id
+        ) clue_counts ON e.hunt_code = clue_counts.hunt_id
         LEFT JOIN (
             SELECT 
-                h2.id as hunt_id,
-                COUNT(qc.id) as total_completions,
-                AVG(qc.total_time_seconds) as avg_time
-            FROM {$hunts_table} h2
-            LEFT JOIN {$completions_table} qc ON qc.tracking_id = h2.id
-            GROUP BY h2.id
-        ) completion_stats ON h.id = completion_stats.hunt_id
-        ORDER BY h.created_at DESC
+                event_id,
+                COUNT(*) as total_bookings,
+                SUM(CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END) as paid_bookings
+            FROM {$bookings_table}
+            GROUP BY event_id
+        ) booking_stats ON e.id = booking_stats.event_id
+        WHERE e.hunt_code IS NOT NULL AND e.hunt_code != ''
+        ORDER BY e.created_at DESC
     ");
     
     ?>
@@ -3135,21 +3146,19 @@ function puzzlepath_quests_page() {
                 <?php else: ?>
                     <?php foreach ($quests as $quest): ?>
                         <tr>
-                            <td><strong><?php echo esc_html($quest->hunt_code); ?></strong></td>
+                            <td><strong><?php echo esc_html($quest->quest_code ?: $quest->hunt_code); ?></strong></td>
                             <td>
-                                <strong><?php echo esc_html($quest->hunt_name); ?></strong>
-                                <?php if ($quest->description): ?>
-                                    <br><small style="color: #666;"><?php echo esc_html(wp_trim_words($quest->description, 8)); ?></small>
+                                <strong><?php echo esc_html($quest->quest_name ?: $quest->title); ?></strong>
+                                <?php if ($quest->hunt_name && $quest->hunt_name != $quest->title): ?>
+                                    <br><small style="color: #666;"><?php echo esc_html($quest->hunt_name); ?></small>
                                 <?php endif; ?>
                             </td>
                             <td><?php echo esc_html($quest->location ?: 'Not specified'); ?></td>
                             <td>
-                                <?php if ($quest->difficulty_level): ?>
-                                    <span class="quest-difficulty difficulty-<?php echo esc_attr(strtolower($quest->difficulty_level)); ?>" style="padding: 2px 6px; border-radius: 3px; font-size: 11px; text-transform: uppercase; color: white; background: #666;">
-                                        <?php echo esc_html($quest->difficulty_level); ?>
-                                    </span><br>
-                                <?php endif; ?>
-                                <small>Type: Quest</small>
+                                <span class="quest-difficulty difficulty-medium" style="padding: 2px 6px; border-radius: 3px; font-size: 11px; text-transform: uppercase; color: white; background: #dba617;">
+                                    <?php echo esc_html($quest->hosting_type === 'hosted' ? 'LIVE' : 'ANYTIME'); ?>
+                                </span><br>
+                                <small>Type: <?php echo esc_html(ucfirst($quest->quest_type)); ?></small>
                             </td>
                             <td>
                                 <strong><?php echo $quest->clue_count; ?></strong> clues
@@ -3158,21 +3167,10 @@ function puzzlepath_quests_page() {
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <?php if ($quest->estimated_duration): ?>
-                                    <?php 
-                                    $hours = floor($quest->estimated_duration / 60);
-                                    $minutes = $quest->estimated_duration % 60;
-                                    if ($hours > 0) {
-                                        echo $hours . 'h ' . $minutes . 'm';
-                                    } else {
-                                        echo $minutes . 'm';
-                                    }
-                                    ?>
-                                <?php else: ?>
-                                    <span style="color: #666;">Not set</span>
-                                <?php endif; ?>
-                                <?php if ($quest->avg_completion_time > 0): ?>
-                                    <br><small style="color: #666;">Avg: <?php echo gmdate('H:i:s', $quest->avg_completion_time); ?></small>
+                                <span style="color: #666;">Duration: TBD</span><br>
+                                <small>Price: $<?php echo number_format($quest->price, 2); ?></small>
+                                <?php if ($quest->event_date): ?>
+                                    <br><small style="color: #666;">Next: <?php echo date('M j, Y', strtotime($quest->event_date)); ?></small>
                                 <?php endif; ?>
                             </td>
                             <td>
@@ -3187,8 +3185,8 @@ function puzzlepath_quests_page() {
                                 <a href="#" onclick="showQuestDetails(<?php echo $quest->id; ?>); return false;" title="View Details">👁️</a>
                                 <a href="#" onclick="editQuest(<?php echo $quest->id; ?>); return false;" title="Edit Quest">✏️</a>
                                 <a href="#" onclick="manageClues(<?php echo $quest->id; ?>); return false;" title="Manage Clues">🧩</a>
-                                <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=delete&hunt_id=' . $quest->id), 'delete_quest_' . $quest->id); ?>" 
-                                   onclick="return confirm('Are you sure you want to delete this quest and all its clues?');" title="Delete Quest">🗑️</a>
+                                <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=delete&event_id=' . $quest->id), 'delete_quest_' . $quest->id); ?>" 
+                                   onclick="return confirm('Are you sure you want to deactivate this quest?');" title="Deactivate Quest">🗑️</a>
                             </td>
                         </tr>
                     <?php endforeach; ?>
