@@ -3017,10 +3017,19 @@ function puzzlepath_db_schema_page() {
  * AJAX handler for quest details
  */
 function puzzlepath_get_quest_details_ajax() {
-    check_ajax_referer('quest_details_nonce', 'nonce');
+    // Add debugging
+    error_log('Quest details AJAX called with data: ' . print_r($_POST, true));
+    
+    try {
+        check_ajax_referer('quest_details_nonce', 'nonce');
+    } catch (Exception $e) {
+        wp_send_json_error('Nonce verification failed: ' . $e->getMessage());
+        return;
+    }
     
     if (!current_user_can('manage_options')) {
-        wp_die('Insufficient permissions');
+        wp_send_json_error('Insufficient permissions');
+        return;
     }
     
     global $wpdb;
@@ -3030,13 +3039,23 @@ function puzzlepath_get_quest_details_ajax() {
     
     $quest_id = intval($_POST['quest_id']);
     
+    if (!$quest_id) {
+        wp_send_json_error('Invalid quest ID provided');
+        return;
+    }
+    
     $quest = $wpdb->get_row($wpdb->prepare(
         "SELECT * FROM {$events_table} WHERE id = %d", 
         $quest_id
     ));
     
     if (!$quest) {
-        wp_send_json_error('Quest not found');
+        wp_send_json_error('Quest not found with ID: ' . $quest_id);
+        return;
+    }
+    
+    if ($wpdb->last_error) {
+        wp_send_json_error('Database error: ' . $wpdb->last_error);
         return;
     }
     
@@ -3051,9 +3070,10 @@ function puzzlepath_get_quest_details_ajax() {
         $quest_id
     ));
     
-    ob_start();
-    ?>
-    <h2 style="margin: 0 0 15px 0; padding-right: 40px;">Quest Details: <?php echo esc_html($quest->title); ?></h2>
+    try {
+        ob_start();
+        ?>
+        <h2 style="margin: 0 0 15px 0; padding-right: 40px;">Quest Details: <?php echo esc_html($quest->title); ?></h2>
     
     <table class="form-table" style="margin-top: 0;">
         <tr>
@@ -3131,8 +3151,15 @@ function puzzlepath_get_quest_details_ajax() {
     </div>
     <?php
     
-    $content = ob_get_clean();
-    wp_send_json_success($content);
+        $content = ob_get_clean();
+        wp_send_json_success($content);
+        
+    } catch (Exception $e) {
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
+        wp_send_json_error('Error generating content: ' . $e->getMessage());
+    }
 }
 add_action('wp_ajax_get_quest_details', 'puzzlepath_get_quest_details_ajax');
 
@@ -3363,7 +3390,7 @@ function puzzlepath_quests_page() {
         document.getElementById('quest-details-modal').style.display = 'block';
         document.getElementById('quest-details-content').innerHTML = 'Loading...';
         
-        jQuery.post(ajaxurl, {
+        jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', {
             action: 'get_quest_details',
             quest_id: questId,
             nonce: '<?php echo wp_create_nonce('quest_details_nonce'); ?>'
@@ -3371,8 +3398,10 @@ function puzzlepath_quests_page() {
             if (response.success) {
                 document.getElementById('quest-details-content').innerHTML = response.data;
             } else {
-                document.getElementById('quest-details-content').innerHTML = 'Error loading quest details.';
+                document.getElementById('quest-details-content').innerHTML = 'Error loading quest details: ' + (response.data || 'Unknown error');
             }
+        }).fail(function(xhr, status, error) {
+            document.getElementById('quest-details-content').innerHTML = 'AJAX Error: ' + error + '<br>Status: ' + status + '<br>Response: ' + xhr.responseText;
         });
     }
     
