@@ -331,6 +331,7 @@ function puzzlepath_register_admin_menus() {
     add_submenu_page('puzzlepath-booking', 'Events', 'Events', 'manage_options', 'puzzlepath-events', 'puzzlepath_events_page');
     add_submenu_page('puzzlepath-booking', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
     add_submenu_page('puzzlepath-booking', 'Settings', 'Settings', 'manage_options', 'puzzlepath-settings', 'puzzlepath_settings_page');
+    add_submenu_page('puzzlepath-booking', 'DB Schema', 'DB Schema', 'manage_options', 'puzzlepath-db-schema', 'puzzlepath_db_schema_page');
     if (class_exists('PuzzlePath_Stripe_Integration')) {
         $stripe_instance = PuzzlePath_Stripe_Integration::get_instance();
         add_submenu_page('puzzlepath-booking', 'Stripe Settings', 'Stripe Settings', 'manage_options', 'puzzlepath-stripe-settings', array($stripe_instance, 'stripe_settings_page_content'));
@@ -2917,3 +2918,96 @@ function puzzlepath_save_booking_changes_ajax() {
     wp_send_json_success('Booking updated successfully!');
 }
 add_action('wp_ajax_save_booking_changes', 'puzzlepath_save_booking_changes_ajax');
+
+/**
+ * Temporary function to display database schema for quest tables
+ */
+function puzzlepath_db_schema_page() {
+    if (!current_user_can('manage_options')) {
+        wp_die(__('You do not have sufficient permissions to access this page.'));
+    }
+    
+    global $wpdb;
+    
+    // Define the quest-related tables we want to examine
+    $quest_tables = [
+        'pp_hunts',
+        'pp_clues', 
+        'pp_clue_tracking',
+        'pp_clue_completions',
+        'pp_quest_completions',
+        'pp_user_medals',
+        'pp_medals'
+    ];
+    
+    echo '<div class="wrap">';
+    echo '<h1>Database Schema for Quest Tables</h1>';
+    echo '<p>This page shows the structure of quest-related tables to help build the Quest Management interface.</p>';
+    
+    foreach ($quest_tables as $table_name) {
+        echo '<h2>Table: ' . esc_html($table_name) . '</h2>';
+        
+        // Check if table exists
+        $table_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name));
+        
+        if ($table_exists) {
+            // Get table structure
+            $columns = $wpdb->get_results("DESCRIBE $table_name");
+            
+            if ($columns) {
+                echo '<table class="wp-list-table widefat fixed striped" style="margin-bottom: 20px;">';
+                echo '<thead><tr><th>Field</th><th>Type</th><th>Null</th><th>Key</th><th>Default</th><th>Extra</th></tr></thead>';
+                echo '<tbody>';
+                
+                foreach ($columns as $column) {
+                    echo '<tr>';
+                    echo '<td><strong>' . esc_html($column->Field) . '</strong></td>';
+                    echo '<td>' . esc_html($column->Type) . '</td>';
+                    echo '<td>' . esc_html($column->Null) . '</td>';
+                    echo '<td>' . esc_html($column->Key) . '</td>';
+                    echo '<td>' . esc_html($column->Default ?: 'NULL') . '</td>';
+                    echo '<td>' . esc_html($column->Extra) . '</td>';
+                    echo '</tr>';
+                }
+                
+                echo '</tbody></table>';
+                
+                // Show sample data (first 3 rows)
+                $sample_data = $wpdb->get_results("SELECT * FROM $table_name LIMIT 3");
+                if ($sample_data) {
+                    echo '<h4>Sample Data (First 3 rows):</h4>';
+                    echo '<table class="wp-list-table widefat fixed striped" style="margin-bottom: 30px;">';
+                    
+                    // Header
+                    echo '<thead><tr>';
+                    foreach ($columns as $column) {
+                        echo '<th>' . esc_html($column->Field) . '</th>';
+                    }
+                    echo '</tr></thead>';
+                    
+                    // Data rows
+                    echo '<tbody>';
+                    foreach ($sample_data as $row) {
+                        echo '<tr>';
+                        foreach ($row as $value) {
+                            echo '<td>' . esc_html($value ?: 'NULL') . '</td>';
+                        }
+                        echo '</tr>';
+                    }
+                    echo '</tbody></table>';
+                } else {
+                    echo '<p><em>No data found in this table.</em></p>';
+                }
+                
+            } else {
+                echo '<p><em>Could not retrieve table structure.</em></p>';
+            }
+        } else {
+            echo '<p><em>Table does not exist.</em></p>';
+        }
+        
+        echo '<hr style="margin: 30px 0;">';
+    }
+    
+    echo '</div>';
+}
