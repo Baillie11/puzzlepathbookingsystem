@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath with unified app integration.
- * Version: 2.7.4
+ * Version: 2.7.5
  * Author: Andrew Baillie
  */
 
@@ -105,7 +105,7 @@ function puzzlepath_activate() {
     // Ensure unified app compatibility by updating existing bookings
     puzzlepath_fix_unified_app_compatibility();
     
-    update_option('puzzlepath_booking_version', '2.7.4');
+    update_option('puzzlepath_booking_version', '2.7.5');
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 
@@ -162,7 +162,7 @@ function puzzlepath_fix_unified_app_compatibility() {
  */
 function puzzlepath_update_db_check() {
     $current_version = get_option('puzzlepath_booking_version', '1.0');
-    if (version_compare($current_version, '2.7.4', '<')) {
+    if (version_compare($current_version, '2.7.5', '<')) {
         puzzlepath_activate();
         // Generate hunt codes for existing events that don't have them
         puzzlepath_generate_missing_hunt_codes();
@@ -2213,6 +2213,7 @@ function puzzlepath_bookings_page() {
                                 <td><?php echo date('M j, Y', strtotime($booking->created_at)); ?></td>
                                 <td>
                                     <a href="#" onclick="showBookingDetails(<?php echo $booking->id; ?>); return false;" title="View Details">👁️</a>
+                                    <a href="#" onclick="editBookingDetails(<?php echo $booking->id; ?>); return false;" title="Edit Booking">✏️</a>
                                     <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=resend_email&booking_id=' . $booking->id), 'puzzlepath_resend_' . $booking->id); ?>" title="Resend Email">📧</a>
                                     <?php if ($booking->payment_status === 'paid'): ?>
                                         <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=refund&booking_id=' . $booking->id), 'puzzlepath_refund_' . $booking->id); ?>" 
@@ -2252,6 +2253,16 @@ function puzzlepath_bookings_page() {
         <div style="background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 5px;">
             <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;" onclick="closeBookingDetails()">&times;</span>
             <div id="booking-details-content">
+                Loading...
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Booking Modal -->
+    <div id="edit-booking-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+        <div style="background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 5px;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;" onclick="closeEditBooking()">&times;</span>
+            <div id="edit-booking-content">
                 Loading...
             </div>
         </div>
@@ -2325,11 +2336,72 @@ function puzzlepath_bookings_page() {
         document.getElementById('booking-details-modal').style.display = 'none';
     }
     
+    function editBookingDetails(bookingId) {
+        document.getElementById('edit-booking-modal').style.display = 'block';
+        document.getElementById('edit-booking-content').innerHTML = 'Loading...';
+        
+        // AJAX call to get edit booking form
+        jQuery.post(ajaxurl, {
+            action: 'get_edit_booking_form',
+            booking_id: bookingId,
+            nonce: '<?php echo wp_create_nonce('edit_booking_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                document.getElementById('edit-booking-content').innerHTML = response.data;
+            } else {
+                document.getElementById('edit-booking-content').innerHTML = 'Error loading booking form.';
+            }
+        });
+    }
+    
+    function closeEditBooking() {
+        document.getElementById('edit-booking-modal').style.display = 'none';
+    }
+    
+    function saveBookingChanges(bookingId) {
+        var form = document.getElementById('edit-booking-form');
+        var formData = new FormData(form);
+        formData.append('action', 'save_booking_changes');
+        formData.append('booking_id', bookingId);
+        formData.append('nonce', '<?php echo wp_create_nonce('save_booking_nonce'); ?>');
+        
+        // Show loading
+        document.getElementById('edit-booking-save-btn').disabled = true;
+        document.getElementById('edit-booking-save-btn').textContent = 'Saving...';
+        
+        jQuery.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                if (response.success) {
+                    alert('Booking updated successfully!');
+                    closeEditBooking();
+                    location.reload(); // Refresh the page to show changes
+                } else {
+                    alert('Error: ' + response.data);
+                    document.getElementById('edit-booking-save-btn').disabled = false;
+                    document.getElementById('edit-booking-save-btn').textContent = 'Save Changes';
+                }
+            },
+            error: function() {
+                alert('An error occurred while saving changes.');
+                document.getElementById('edit-booking-save-btn').disabled = false;
+                document.getElementById('edit-booking-save-btn').textContent = 'Save Changes';
+            }
+        });
+    }
+    
     // Close modal when clicking outside
     window.onclick = function(event) {
         var modal = document.getElementById('booking-details-modal');
+        var editModal = document.getElementById('edit-booking-modal');
         if (event.target == modal) {
             modal.style.display = 'none';
+        } else if (event.target == editModal) {
+            editModal.style.display = 'none';
         }
     }
     </script>
@@ -2643,6 +2715,7 @@ function puzzlepath_get_booking_details_ajax() {
     </table>
     
     <div style="margin-top: 20px;">
+        <button type="button" class="button button-primary" onclick="closeBookingDetails(); editBookingDetails(<?php echo $booking->id; ?>);">Edit Booking</button>
         <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=resend_email&booking_id=' . $booking->id), 'puzzlepath_resend_' . $booking->id); ?>" class="button">Resend Confirmation Email</a>
         <?php if ($booking->payment_status === 'paid'): ?>
             <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=refund&booking_id=' . $booking->id), 'puzzlepath_refund_' . $booking->id); ?>" 
@@ -2655,3 +2728,172 @@ function puzzlepath_get_booking_details_ajax() {
     wp_send_json_success($content);
 }
 add_action('wp_ajax_get_booking_details', 'puzzlepath_get_booking_details_ajax');
+
+/**
+ * AJAX handler for edit booking form
+ */
+function puzzlepath_get_edit_booking_form_ajax() {
+    check_ajax_referer('edit_booking_nonce', 'nonce');
+    
+    if (!current_user_can('manage_options')) {
+        wp_die('Insufficient permissions');
+    }
+    
+    global $wpdb;
+    $booking_id = intval($_POST['booking_id']);
+    
+    $booking = $wpdb->get_row($wpdb->prepare(
+        "SELECT b.*, e.title as event_title, e.hunt_code, e.hunt_name, e.event_date, e.location, c.code as coupon_code, c.discount_percent
+         FROM {$wpdb->prefix}pp_bookings b 
+         LEFT JOIN {$wpdb->prefix}pp_events e ON b.event_id = e.id
+         LEFT JOIN {$wpdb->prefix}pp_coupons c ON b.coupon_id = c.id
+         WHERE b.id = %d", 
+        $booking_id
+    ));
+    
+    if (!$booking) {
+        wp_send_json_error('Booking not found');
+        return;
+    }
+    
+    ob_start();
+    ?>
+    <h2>Edit Booking #<?php echo $booking->id; ?></h2>
+    
+    <form id="edit-booking-form">
+        <table class="form-table">
+            <tr>
+                <th><label for="edit-booking-code">Booking Code:</label></th>
+                <td><input type="text" id="edit-booking-code" name="booking_code" value="<?php echo esc_attr($booking->booking_code); ?>" class="regular-text" readonly style="background: #f7f7f7;" /></td>
+            </tr>
+            <tr>
+                <th><label for="edit-customer-name">Customer Name:</label></th>
+                <td><input type="text" id="edit-customer-name" name="customer_name" value="<?php echo esc_attr($booking->customer_name); ?>" class="regular-text" required /></td>
+            </tr>
+            <tr>
+                <th><label for="edit-customer-email">Customer Email:</label></th>
+                <td><input type="email" id="edit-customer-email" name="customer_email" value="<?php echo esc_attr($booking->customer_email); ?>" class="regular-text" required /></td>
+            </tr>
+            <tr>
+                <th><label for="edit-event-title">Event:</label></th>
+                <td><input type="text" id="edit-event-title" value="<?php echo esc_attr($booking->event_title); ?>" class="regular-text" readonly style="background: #f7f7f7;" /></td>
+            </tr>
+            <?php if ($booking->hunt_name || $booking->hunt_code): ?>
+            <tr>
+                <th>Hunt:</th>
+                <td>
+                    <input type="text" value="<?php echo esc_attr($booking->hunt_name ?: $booking->hunt_code); ?><?php echo ($booking->hunt_name && $booking->hunt_code) ? ' (' . $booking->hunt_code . ')' : ''; ?>" class="regular-text" readonly style="background: #f7f7f7;" />
+                </td>
+            </tr>
+            <?php endif; ?>
+            <tr>
+                <th><label for="edit-tickets">Number of Tickets:</label></th>
+                <td><input type="number" id="edit-tickets" name="tickets" value="<?php echo esc_attr($booking->tickets); ?>" min="1" max="50" class="small-text" required /></td>
+            </tr>
+            <tr>
+                <th><label for="edit-total-price">Total Price ($):</label></th>
+                <td><input type="number" id="edit-total-price" name="total_price" value="<?php echo esc_attr($booking->total_price); ?>" step="0.01" min="0" class="regular-text" required /></td>
+            </tr>
+            <?php if ($booking->coupon_code): ?>
+            <tr>
+                <th>Coupon:</th>
+                <td><input type="text" value="<?php echo esc_attr($booking->coupon_code); ?> (<?php echo $booking->discount_percent; ?>% off)" class="regular-text" readonly style="background: #f7f7f7;" /></td>
+            </tr>
+            <?php endif; ?>
+            <tr>
+                <th><label for="edit-payment-status">Payment Status:</label></th>
+                <td>
+                    <select id="edit-payment-status" name="payment_status" class="regular-text" required>
+                        <option value="pending" <?php selected($booking->payment_status, 'pending'); ?>>Pending</option>
+                        <option value="paid" <?php selected($booking->payment_status, 'paid'); ?>>Paid</option>
+                        <option value="failed" <?php selected($booking->payment_status, 'failed'); ?>>Failed</option>
+                        <option value="refunded" <?php selected($booking->payment_status, 'refunded'); ?>>Refunded</option>
+                    </select>
+                </td>
+            </tr>
+            <?php if ($booking->participant_names): ?>
+            <tr>
+                <th><label for="edit-participant-names">Participant Names:</label></th>
+                <td><textarea id="edit-participant-names" name="participant_names" rows="4" class="large-text"><?php echo esc_textarea($booking->participant_names); ?></textarea></td>
+            </tr>
+            <?php endif; ?>
+        </table>
+    </form>
+    
+    <div style="margin-top: 20px;">
+        <button type="button" id="edit-booking-save-btn" class="button button-primary" onclick="saveBookingChanges(<?php echo $booking->id; ?>)">Save Changes</button>
+        <button type="button" class="button" onclick="closeEditBooking()">Cancel</button>
+    </div>
+    <?php
+    
+    $content = ob_get_clean();
+    wp_send_json_success($content);
+}
+add_action('wp_ajax_get_edit_booking_form', 'puzzlepath_get_edit_booking_form_ajax');
+
+/**
+ * AJAX handler for saving booking changes
+ */
+function puzzlepath_save_booking_changes_ajax() {
+    check_ajax_referer('save_booking_nonce', 'nonce');
+    
+    if (!current_user_can('manage_options')) {
+        wp_die('Insufficient permissions');
+    }
+    
+    global $wpdb;
+    $booking_id = intval($_POST['booking_id']);
+    
+    // Validate input
+    $customer_name = sanitize_text_field($_POST['customer_name']);
+    $customer_email = sanitize_email($_POST['customer_email']);
+    $tickets = intval($_POST['tickets']);
+    $total_price = floatval($_POST['total_price']);
+    $payment_status = sanitize_text_field($_POST['payment_status']);
+    $participant_names = isset($_POST['participant_names']) ? sanitize_textarea_field($_POST['participant_names']) : '';
+    
+    // Validation
+    if (empty($customer_name) || empty($customer_email) || $tickets < 1 || $total_price < 0) {
+        wp_send_json_error('Please fill in all required fields with valid values.');
+        return;
+    }
+    
+    if (!is_email($customer_email)) {
+        wp_send_json_error('Please enter a valid email address.');
+        return;
+    }
+    
+    if (!in_array($payment_status, ['pending', 'paid', 'failed', 'refunded'])) {
+        wp_send_json_error('Invalid payment status.');
+        return;
+    }
+    
+    // Update booking
+    $update_data = [
+        'customer_name' => $customer_name,
+        'customer_email' => $customer_email,
+        'tickets' => $tickets,
+        'total_price' => $total_price,
+        'payment_status' => $payment_status
+    ];
+    
+    if ($participant_names !== '') {
+        $update_data['participant_names'] = $participant_names;
+    }
+    
+    $result = $wpdb->update(
+        $wpdb->prefix . 'pp_bookings',
+        $update_data,
+        ['id' => $booking_id],
+        ['%s', '%s', '%d', '%f', '%s', '%s'],
+        ['%d']
+    );
+    
+    if ($result === false) {
+        wp_send_json_error('Database error: Could not update booking.');
+        return;
+    }
+    
+    wp_send_json_success('Booking updated successfully!');
+}
+add_action('wp_ajax_save_booking_changes', 'puzzlepath_save_booking_changes_ajax');

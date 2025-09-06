@@ -1,6 +1,34 @@
 # Changelog
 
-All notable changes to the PuzzlePath Booking System will be documented in this file.
+All notable changes to the PuzzlePath Booking plugin will be documented in this file.
+
+## [2.7.5] - 2025-01-06
+
+### ✨ NEW FEATURES
+- **Booking Edit Functionality**: Complete edit capabilities for bookings
+  - Edit customer name, email, ticket count, and payment status
+  - Edit participant names (when available)
+  - Real-time form validation and error handling
+  - AJAX-powered modal interface for seamless editing
+
+### 🎨 UI ENHANCEMENTS
+- Added edit (✏️) button to booking actions column
+- New edit booking modal with proper form layout
+- "Edit Booking" button in booking details modal for quick access
+- Enhanced modal system with proper validation feedback
+
+### 🛠 TECHNICAL IMPROVEMENTS
+- Added `get_edit_booking_form_ajax()` AJAX handler
+- Added `save_booking_changes_ajax()` with comprehensive validation
+- Secure nonce verification for all edit operations
+- Input sanitization and validation for all editable fields
+- Database update with proper error handling
+
+### 🔐 SECURITY
+- Proper capability checks (`manage_options`) for edit functionality
+- Nonce verification for all AJAX requests
+- Input sanitization for all user data
+- SQL injection protection with prepared statements
 
 ## [2.7.3] - 2025-09-06
 
