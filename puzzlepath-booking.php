@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath with unified app integration.
- * Version: 2.7.2
+ * Version: 2.7.3
  * Author: Andrew Baillie
  */
 
@@ -105,7 +105,7 @@ function puzzlepath_activate() {
     // Ensure unified app compatibility by updating existing bookings
     puzzlepath_fix_unified_app_compatibility();
     
-    update_option('puzzlepath_booking_version', '2.7.2');
+    update_option('puzzlepath_booking_version', '2.7.3');
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 
@@ -148,13 +148,13 @@ function puzzlepath_fix_unified_app_compatibility() {
             b.created_at,
             b.payment_status,
             CASE 
-                WHEN b.payment_status = 'succeeded' THEN 'confirmed'
+                WHEN b.payment_status = 'paid' THEN 'confirmed'
                 WHEN b.payment_status = 'pending' THEN 'pending'
                 ELSE 'cancelled'
             END as status
         FROM $bookings_table b
         LEFT JOIN $events_table e ON b.event_id = e.id
-        WHERE b.payment_status IN ('succeeded', 'pending')");
+        WHERE b.payment_status IN ('paid', 'pending')");
 }
 
 /**
@@ -162,10 +162,12 @@ function puzzlepath_fix_unified_app_compatibility() {
  */
 function puzzlepath_update_db_check() {
     $current_version = get_option('puzzlepath_booking_version', '1.0');
-    if (version_compare($current_version, '2.7.2', '<')) {
+    if (version_compare($current_version, '2.7.3', '<')) {
         puzzlepath_activate();
         // Generate hunt codes for existing events that don't have them
         puzzlepath_generate_missing_hunt_codes();
+        // Update payment statuses for existing bookings
+        puzzlepath_update_payment_statuses();
     }
 }   
 add_action('plugins_loaded', 'puzzlepath_update_db_check');
@@ -232,6 +234,25 @@ function puzzlepath_generate_hunt_code($event_data) {
     }
     
     return $full_code;
+}
+
+/**
+ * Update payment statuses from 'succeeded' to 'paid' for consistency
+ */
+function puzzlepath_update_payment_statuses() {
+    global $wpdb;
+    $bookings_table = $wpdb->prefix . 'pp_bookings';
+    
+    // Update all 'succeeded' statuses to 'paid'
+    $wpdb->query("
+        UPDATE {$bookings_table}
+        SET payment_status = 'paid'
+        WHERE payment_status = 'succeeded'
+    ");
+    
+    // Log the status update
+    $rows_affected = $wpdb->rows_affected;
+    error_log("PuzzlePath payment status migration: Updated {$rows_affected} bookings from 'succeeded' to 'paid'");
 }
 
 /**
@@ -1971,7 +1992,7 @@ function puzzlepath_bookings_page() {
                     <select name="status">
                         <option value="">All Statuses</option>
                         <option value="pending" <?php selected($status_filter, 'pending'); ?>>Pending</option>
-                        <option value="succeeded" <?php selected($status_filter, 'succeeded'); ?>>Succeeded</option>
+                        <option value="paid" <?php selected($status_filter, 'paid'); ?>>Paid</option>
                         <option value="failed" <?php selected($status_filter, 'failed'); ?>>Failed</option>
                         <option value="refunded" <?php selected($status_filter, 'refunded'); ?>>Refunded</option>
                     </select>
@@ -2129,7 +2150,7 @@ function puzzlepath_bookings_page() {
                                     <?php 
                                     $status_colors = [
                                         'pending' => '#dba617',
-                                        'succeeded' => '#00a32a', 
+                                        'paid' => '#00a32a', 
                                         'failed' => '#d63638',
                                         'refunded' => '#8c8f94'
                                     ];
@@ -2143,7 +2164,7 @@ function puzzlepath_bookings_page() {
                                 <td>
                                     <a href="#" onclick="showBookingDetails(<?php echo $booking->id; ?>); return false;" title="View Details">👁️</a>
                                     <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=resend_email&booking_id=' . $booking->id), 'puzzlepath_resend_' . $booking->id); ?>" title="Resend Email">📧</a>
-                                    <?php if ($booking->payment_status === 'succeeded'): ?>
+                                    <?php if ($booking->payment_status === 'paid'): ?>
                                         <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=refund&booking_id=' . $booking->id), 'puzzlepath_refund_' . $booking->id); ?>" 
                                            onclick="return confirm('Are you sure you want to refund this booking?');" title="Refund">💸</a>
                                     <?php endif; ?>
@@ -2281,10 +2302,10 @@ function puzzlepath_get_booking_stats($where_sql = '', $where_values = []) {
     $query = "SELECT COUNT(*) $base_query";
     $stats['total_bookings'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, $where_values));
     
-    // Total revenue (succeeded bookings only)
-    $revenue_where = $where_sql ? $where_sql . " AND b.payment_status = 'succeeded'" : "WHERE b.payment_status = 'succeeded'";
+    // Total revenue (paid bookings only)
+    $revenue_where = $where_sql ? $where_sql . " AND b.payment_status = 'paid'" : "WHERE b.payment_status = 'paid'";
     $query = "SELECT COALESCE(SUM(b.total_price), 0) FROM $bookings_table b LEFT JOIN $events_table e ON b.event_id = e.id $revenue_where";
-    $stats['total_revenue'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, array_merge($where_values, ['succeeded'])));
+    $stats['total_revenue'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, array_merge($where_values, ['paid'])));
     
     // Pending payments
     $pending_where = $where_sql ? $where_sql . " AND b.payment_status = 'pending'" : "WHERE b.payment_status = 'pending'";
@@ -2309,7 +2330,7 @@ function puzzlepath_process_refund($booking_id) {
         $booking_id
     ));
     
-    if (!$booking || $booking->payment_status !== 'succeeded') {
+    if (!$booking || $booking->payment_status !== 'paid') {
         return ['success' => false, 'error' => 'Booking not found or not eligible for refund.'];
     }
     
@@ -2546,7 +2567,7 @@ function puzzlepath_get_booking_details_ajax() {
             <th>Payment Status:</th>
             <td>
                 <span style="background: <?php 
-                    echo $booking->payment_status === 'succeeded' ? '#00a32a' : 
+                    echo $booking->payment_status === 'paid' ? '#00a32a' :
                          ($booking->payment_status === 'pending' ? '#dba617' : '#d63638'); 
                 ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
                     <?php echo esc_html($booking->payment_status); ?>
@@ -2573,7 +2594,7 @@ function puzzlepath_get_booking_details_ajax() {
     
     <div style="margin-top: 20px;">
         <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=resend_email&booking_id=' . $booking->id), 'puzzlepath_resend_' . $booking->id); ?>" class="button">Resend Confirmation Email</a>
-        <?php if ($booking->payment_status === 'succeeded'): ?>
+        <?php if ($booking->payment_status === 'paid'): ?>
             <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-bookings&action=refund&booking_id=' . $booking->id), 'puzzlepath_refund_' . $booking->id); ?>" 
                class="button button-secondary" onclick="return confirm('Are you sure you want to refund this booking?');">Process Refund</a>
         <?php endif; ?>

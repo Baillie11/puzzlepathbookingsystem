@@ -188,7 +188,7 @@ class PuzzlePath_Stripe_Integration {
             // No need to generate a new code, just update status
             $wpdb->update($bookings_table, 
                 [
-                    'payment_status' => 'succeeded'
+                    'payment_status' => 'paid'
                 ], 
                 ['id' => $booking->id]
             );
@@ -249,8 +249,8 @@ class PuzzlePath_Stripe_Integration {
         if (!$booking) {
             return new WP_REST_Response(['status' => 'pending'], 200);
         }
-        if ($booking->payment_status === 'succeeded' && $booking->booking_code) {
-            return new WP_REST_Response(['status' => 'succeeded', 'booking_code' => $booking->booking_code], 200);
+        if ($booking->payment_status === 'paid' && $booking->booking_code) {
+            return new WP_REST_Response(['status' => 'paid', 'booking_code' => $booking->booking_code], 200);
         }
         return new WP_REST_Response(['status' => $booking->payment_status], 200);
     }
