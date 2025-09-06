@@ -3331,6 +3331,171 @@ function puzzlepath_save_quest_changes_ajax() {
 add_action('wp_ajax_save_quest_changes', 'puzzlepath_save_quest_changes_ajax');
 
 /**
+ * AJAX handler for quest clues management
+ */
+function puzzlepath_get_quest_clues_ajax() {
+    check_ajax_referer('quest_clues_nonce', 'nonce');
+    
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+        return;
+    }
+    
+    global $wpdb;
+    $events_table = $wpdb->prefix . 'pp_events';
+    $clues_table = $wpdb->prefix . 'pp_clues';
+    
+    $quest_id = intval($_POST['quest_id']);
+    
+    if (!$quest_id) {
+        wp_send_json_error('Invalid quest ID provided');
+        return;
+    }
+    
+    // Get quest info
+    $quest = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$events_table} WHERE id = %d", 
+        $quest_id
+    ));
+    
+    if (!$quest) {
+        wp_send_json_error('Quest not found with ID: ' . $quest_id);
+        return;
+    }
+    
+    // Get all clues for this quest
+    $clues = $wpdb->get_results($wpdb->prepare(
+        "SELECT * FROM {$clues_table} WHERE hunt_id = %s ORDER BY clue_order ASC",
+        $quest->hunt_code
+    ));
+    
+    ob_start();
+    ?>
+    <h2 style="margin: 0 0 15px 0; padding-right: 40px;">Manage Clues: <?php echo esc_html($quest->title); ?></h2>
+    
+    <div style="margin-bottom: 20px; padding: 10px; background: #f0f0f1; border-radius: 4px;">
+        <strong>Quest:</strong> <?php echo esc_html($quest->title); ?> (<?php echo esc_html($quest->hunt_code); ?>)<br>
+        <strong>Location:</strong> <?php echo esc_html($quest->location); ?><br>
+        <strong>Total Clues:</strong> <?php echo count($clues); ?>
+    </div>
+    
+    <?php if (empty($clues)): ?>
+        <div style="text-align: center; padding: 40px; background: #fff; border: 2px dashed #ddd; border-radius: 4px;">
+            <h3>No Clues Found</h3>
+            <p>This quest doesn't have any clues yet.</p>
+            <p>Clues should be linked to the hunt_code: <strong><?php echo esc_html($quest->hunt_code); ?></strong></p>
+            <button type="button" class="button button-primary" onclick="addNewClue('<?php echo esc_js($quest->hunt_code); ?>')">Add First Clue</button>
+        </div>
+    <?php else: ?>
+        <div style="margin-bottom: 10px;">
+            <button type="button" class="button button-primary" onclick="addNewClue('<?php echo esc_js($quest->hunt_code); ?>')">Add New Clue</button>
+        </div>
+        
+        <div class="clues-list">
+            <?php foreach ($clues as $clue): ?>
+                <div class="clue-item" style="background: #fff; margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 4px;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div style="flex: 1;">
+                            <h4 style="margin: 0 0 10px 0; color: #2271b1;">
+                                Clue #<?php echo $clue->clue_order; ?>
+                                <?php if ($clue->title): ?>
+                                    - <?php echo esc_html($clue->title); ?>
+                                <?php endif; ?>
+                                <span style="font-size: 12px; color: <?php echo $clue->is_active ? '#00a32a' : '#d63638'; ?>; margin-left: 10px;">
+                                    <?php echo $clue->is_active ? '●ACTIVE' : '●INACTIVE'; ?>
+                                </span>
+                            </h4>
+                            
+                            <div style="margin-bottom: 10px;">
+                                <strong>Clue Text:</strong><br>
+                                <div style="background: #f9f9f9; padding: 8px; border-radius: 3px; margin-top: 5px;">
+                                    <?php echo esc_html($clue->clue_text ?: 'No clue text'); ?>
+                                </div>
+                            </div>
+                            
+                            <?php if ($clue->task_description): ?>
+                            <div style="margin-bottom: 10px;">
+                                <strong>Task:</strong><br>
+                                <div style="background: #f0f6ff; padding: 8px; border-radius: 3px; margin-top: 5px;">
+                                    <?php echo esc_html($clue->task_description); ?>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <?php if ($clue->hint_text): ?>
+                            <div style="margin-bottom: 10px;">
+                                <strong>Hint:</strong><br>
+                                <div style="background: #fff3cd; padding: 8px; border-radius: 3px; margin-top: 5px;">
+                                    <?php echo esc_html($clue->hint_text); ?>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <?php if ($clue->latitude && $clue->longitude): ?>
+                            <div style="margin-bottom: 10px;">
+                                <strong>Location:</strong> 
+                                Lat: <?php echo $clue->latitude; ?>, Lng: <?php echo $clue->longitude; ?>
+                                <?php if ($clue->geofence_radius): ?>
+                                    (<?php echo $clue->geofence_radius; ?>m radius)
+                                <?php endif; ?>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <?php if ($clue->image_url): ?>
+                            <div style="margin-bottom: 10px;">
+                                <strong>Image:</strong> 
+                                <a href="<?php echo esc_url($clue->image_url); ?>" target="_blank">View Image</a>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                        
+                        <div style="margin-left: 15px;">
+                            <button type="button" class="button button-small" onclick="editClue(<?php echo $clue->id; ?>)" title="Edit Clue">✏️ Edit</button>
+                            <button type="button" class="button button-small" onclick="toggleClueStatus(<?php echo $clue->id; ?>, <?php echo $clue->is_active ? 'false' : 'true'; ?>)" title="<?php echo $clue->is_active ? 'Deactivate' : 'Activate'; ?> Clue">
+                                <?php echo $clue->is_active ? '🚫' : '✅'; ?>
+                            </button>
+                            <button type="button" class="button button-small" onclick="deleteClue(<?php echo $clue->id; ?>)" title="Delete Clue" style="color: #d63638;">🗑️</button>
+                        </div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+    
+    <div style="margin-top: 20px; padding: 15px 0; border-top: 1px solid #ddd; background: #f9f9f9; margin-left: -20px; margin-right: -20px; padding-left: 20px; padding-right: 20px;">
+        <button type="button" class="button" onclick="closeManageClues()">Close</button>
+        <div style="clear: both;"></div>
+    </div>
+    
+    <script>
+    function addNewClue(huntCode) {
+        alert('Add New Clue functionality coming soon for hunt: ' + huntCode);
+    }
+    
+    function editClue(clueId) {
+        alert('Edit Clue functionality coming soon for clue ID: ' + clueId);
+    }
+    
+    function toggleClueStatus(clueId, newStatus) {
+        if (confirm('Are you sure you want to ' + (newStatus === 'true' ? 'activate' : 'deactivate') + ' this clue?')) {
+            alert('Toggle clue status functionality coming soon');
+        }
+    }
+    
+    function deleteClue(clueId) {
+        if (confirm('Are you sure you want to delete this clue? This action cannot be undone.')) {
+            alert('Delete clue functionality coming soon');
+        }
+    }
+    </script>
+    <?php
+    
+    $content = ob_get_clean();
+    wp_send_json_success($content);
+}
+add_action('wp_ajax_get_quest_clues', 'puzzlepath_get_quest_clues_ajax');
+
+/**
  * Quest Management Page
  */
 function puzzlepath_quests_page() {
@@ -3640,7 +3805,7 @@ function puzzlepath_quests_page() {
         document.getElementById('manage-clues-modal').style.display = 'block';
         document.getElementById('manage-clues-content').innerHTML = 'Loading...';
         
-        jQuery.post(ajaxurl, {
+        jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', {
             action: 'get_quest_clues',
             quest_id: questId,
             nonce: '<?php echo wp_create_nonce('quest_clues_nonce'); ?>'
@@ -3648,8 +3813,10 @@ function puzzlepath_quests_page() {
             if (response.success) {
                 document.getElementById('manage-clues-content').innerHTML = response.data;
             } else {
-                document.getElementById('manage-clues-content').innerHTML = 'Error loading clues.';
+                document.getElementById('manage-clues-content').innerHTML = 'Error loading clues: ' + (response.data || 'Unknown error');
             }
+        }).fail(function(xhr, status, error) {
+            document.getElementById('manage-clues-content').innerHTML = 'AJAX Error: ' + error;
         });
     }
     
