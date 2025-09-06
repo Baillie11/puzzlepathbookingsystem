@@ -173,6 +173,20 @@ function puzzlepath_update_db_check() {
 add_action('plugins_loaded', 'puzzlepath_update_db_check');
 
 /**
+ * Display admin notice after payment status migration
+ */
+function puzzlepath_payment_migration_admin_notice() {
+    $migrated_count = get_transient('puzzlepath_payment_migration_notice');
+    if ($migrated_count) {
+        delete_transient('puzzlepath_payment_migration_notice');
+        echo '<div class="notice notice-success is-dismissible">';
+        echo '<p><strong>PuzzlePath Booking:</strong> Successfully updated ' . $migrated_count . ' booking(s) from "succeeded" to "paid" status. Your revenue calculations should now work correctly.</p>';
+        echo '</div>';
+    }
+}
+add_action('admin_notices', 'puzzlepath_payment_migration_admin_notice');
+
+/**
  * Generate unique hunt code based on event details
  * Format: First letter of each word in title + location abbreviation + sequential number
  * Example: "Escape Room Adventure" in "Brisbane" -> "ERAB1", "ERAB2", etc.
@@ -253,6 +267,11 @@ function puzzlepath_update_payment_statuses() {
     // Log the status update
     $rows_affected = $wpdb->rows_affected;
     error_log("PuzzlePath payment status migration: Updated {$rows_affected} bookings from 'succeeded' to 'paid'");
+    
+    // Show admin notice if any updates were made
+    if ($rows_affected > 0) {
+        set_transient('puzzlepath_payment_migration_notice', $rows_affected, 30);
+    }
 }
 
 /**
