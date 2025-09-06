@@ -1,4 +1,16 @@
-# PuzzlePath Booking Plugin
+# PuzzlePath Booking System
+
+## 🚀 Deployment Instructions
+
+### Stripe Dependencies Required
+This plugin requires the Stripe PHP library. After uploading the plugin files:
+
+1. Run `composer install --no-dev` in the plugin directory, OR
+2. Manually upload the `vendor/` directory with Stripe dependencies
+
+**Note**: The `vendor/` directory is excluded from git but required for production.
+
+---
 
 A simple WordPress booking plugin for PuzzlePath events with discount codes and email confirmation.
 
