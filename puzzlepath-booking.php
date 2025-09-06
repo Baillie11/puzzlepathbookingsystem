@@ -3164,6 +3164,173 @@ function puzzlepath_get_quest_details_ajax() {
 add_action('wp_ajax_get_quest_details', 'puzzlepath_get_quest_details_ajax');
 
 /**
+ * AJAX handler for edit quest form
+ */
+function puzzlepath_get_edit_quest_form_ajax() {
+    check_ajax_referer('edit_quest_nonce', 'nonce');
+    
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+        return;
+    }
+    
+    global $wpdb;
+    $events_table = $wpdb->prefix . 'pp_events';
+    
+    $quest_id = intval($_POST['quest_id']);
+    
+    if (!$quest_id) {
+        wp_send_json_error('Invalid quest ID provided');
+        return;
+    }
+    
+    $quest = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$events_table} WHERE id = %d", 
+        $quest_id
+    ));
+    
+    if (!$quest) {
+        wp_send_json_error('Quest not found with ID: ' . $quest_id);
+        return;
+    }
+    
+    ob_start();
+    ?>
+    <h2 style="margin: 0 0 15px 0; padding-right: 40px;">Edit Quest: <?php echo esc_html($quest->title); ?></h2>
+    
+    <form id="edit-quest-form">
+        <table class="form-table" style="margin-top: 0;">
+            <tr>
+                <th><label for="edit-quest-code">Quest Code:</label></th>
+                <td><input type="text" id="edit-quest-code" name="hunt_code" value="<?php echo esc_attr($quest->hunt_code); ?>" class="regular-text" readonly style="background: #f7f7f7;" /></td>
+            </tr>
+            <tr>
+                <th><label for="edit-quest-title">Quest Name:</label></th>
+                <td><input type="text" id="edit-quest-title" name="title" value="<?php echo esc_attr($quest->title); ?>" class="regular-text" required /></td>
+            </tr>
+            <tr>
+                <th><label for="edit-hunt-name">Hunt Name:</label></th>
+                <td><input type="text" id="edit-hunt-name" name="hunt_name" value="<?php echo esc_attr($quest->hunt_name); ?>" class="regular-text" /></td>
+            </tr>
+            <tr>
+                <th><label for="edit-location">Location:</label></th>
+                <td><input type="text" id="edit-location" name="location" value="<?php echo esc_attr($quest->location); ?>" class="regular-text" required /></td>
+            </tr>
+            <tr>
+                <th><label for="edit-hosting-type">Quest Type:</label></th>
+                <td>
+                    <select id="edit-hosting-type" name="hosting_type" class="regular-text" required>
+                        <option value="self-hosted" <?php selected($quest->hosting_type, 'self-hosted'); ?>>ANYTIME Quest (Self-hosted)</option>
+                        <option value="hosted" <?php selected($quest->hosting_type, 'hosted'); ?>>LIVE Quest (Scheduled)</option>
+                        <option value="inactive" <?php selected($quest->hosting_type, 'inactive'); ?>>Inactive</option>
+                    </select>
+                </td>
+            </tr>
+            <?php if ($quest->hosting_type === 'hosted'): ?>
+            <tr>
+                <th><label for="edit-event-date">Event Date & Time:</label></th>
+                <td><input type="datetime-local" id="edit-event-date" name="event_date" value="<?php echo $quest->event_date ? date('Y-m-d\TH:i', strtotime($quest->event_date)) : ''; ?>" class="regular-text" /></td>
+            </tr>
+            <?php endif; ?>
+            <tr>
+                <th><label for="edit-price">Price ($):</label></th>
+                <td><input type="number" id="edit-price" name="price" value="<?php echo esc_attr($quest->price); ?>" step="0.01" min="0" class="regular-text" required /></td>
+            </tr>
+            <tr>
+                <th><label for="edit-seats">Available Seats:</label></th>
+                <td><input type="number" id="edit-seats" name="seats" value="<?php echo esc_attr($quest->seats); ?>" min="1" max="1000" class="small-text" required /></td>
+            </tr>
+        </table>
+    </form>
+    
+    <div style="margin-top: 20px; padding: 15px 0; border-top: 1px solid #ddd; background: #f9f9f9; margin-left: -20px; margin-right: -20px; padding-left: 20px; padding-right: 20px;">
+        <button type="button" id="quest-save-btn" class="button button-primary" onclick="saveQuestChanges(<?php echo $quest->id; ?>)" style="margin-right: 10px;">Save Changes</button>
+        <button type="button" class="button" onclick="closeEditQuest()">Cancel</button>
+        <div style="clear: both;"></div>
+    </div>
+    <?php
+    
+    $content = ob_get_clean();
+    wp_send_json_success($content);
+}
+add_action('wp_ajax_get_edit_quest_form', 'puzzlepath_get_edit_quest_form_ajax');
+
+/**
+ * AJAX handler for saving quest changes
+ */
+function puzzlepath_save_quest_changes_ajax() {
+    check_ajax_referer('save_quest_nonce', 'nonce');
+    
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+        return;
+    }
+    
+    global $wpdb;
+    $events_table = $wpdb->prefix . 'pp_events';
+    
+    $quest_id = intval($_POST['quest_id']);
+    
+    if (!$quest_id) {
+        wp_send_json_error('Invalid quest ID provided');
+        return;
+    }
+    
+    // Validate and sanitize input
+    $title = sanitize_text_field($_POST['title']);
+    $hunt_name = sanitize_text_field($_POST['hunt_name']);
+    $location = sanitize_text_field($_POST['location']);
+    $hosting_type = sanitize_text_field($_POST['hosting_type']);
+    $price = floatval($_POST['price']);
+    $seats = intval($_POST['seats']);
+    $event_date = !empty($_POST['event_date']) ? sanitize_text_field($_POST['event_date']) : null;
+    
+    // Validation
+    if (empty($title) || empty($location) || $price < 0 || $seats < 1) {
+        wp_send_json_error('Please fill in all required fields with valid values.');
+        return;
+    }
+    
+    if (!in_array($hosting_type, ['hosted', 'self-hosted', 'inactive'])) {
+        wp_send_json_error('Invalid hosting type.');
+        return;
+    }
+    
+    // Prepare update data
+    $update_data = [
+        'title' => $title,
+        'hunt_name' => $hunt_name,
+        'location' => $location,
+        'hosting_type' => $hosting_type,
+        'price' => $price,
+        'seats' => $seats
+    ];
+    
+    if ($event_date) {
+        $update_data['event_date'] = date('Y-m-d H:i:s', strtotime($event_date));
+    } elseif ($hosting_type !== 'hosted') {
+        $update_data['event_date'] = null;
+    }
+    
+    // Update quest
+    $result = $wpdb->update(
+        $events_table,
+        $update_data,
+        ['id' => $quest_id],
+        ['%s', '%s', '%s', '%s', '%f', '%d', '%s'],
+        ['%d']
+    );
+    
+    if ($result === false) {
+        wp_send_json_error('Database error: Could not update quest. ' . $wpdb->last_error);
+        return;
+    }
+    
+    wp_send_json_success('Quest updated successfully!');
+}
+add_action('wp_ajax_save_quest_changes', 'puzzlepath_save_quest_changes_ajax');
+
+/**
  * Quest Management Page
  */
 function puzzlepath_quests_page() {
@@ -3414,7 +3581,7 @@ function puzzlepath_quests_page() {
         document.getElementById('edit-quest-modal').style.display = 'block';
         document.getElementById('edit-quest-content').innerHTML = 'Loading...';
         
-        jQuery.post(ajaxurl, {
+        jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', {
             action: 'get_edit_quest_form',
             quest_id: questId,
             nonce: '<?php echo wp_create_nonce('edit_quest_nonce'); ?>'
@@ -3422,8 +3589,10 @@ function puzzlepath_quests_page() {
             if (response.success) {
                 document.getElementById('edit-quest-content').innerHTML = response.data;
             } else {
-                document.getElementById('edit-quest-content').innerHTML = 'Error loading quest form.';
+                document.getElementById('edit-quest-content').innerHTML = 'Error loading quest form: ' + (response.data || 'Unknown error');
             }
+        }).fail(function(xhr, status, error) {
+            document.getElementById('edit-quest-content').innerHTML = 'AJAX Error: ' + error;
         });
     }
     
@@ -3442,7 +3611,7 @@ function puzzlepath_quests_page() {
         document.getElementById('quest-save-btn').textContent = 'Saving...';
         
         jQuery.ajax({
-            url: ajaxurl,
+            url: '<?php echo admin_url('admin-ajax.php'); ?>',
             type: 'POST',
             data: formData,
             processData: false,
@@ -3570,7 +3739,7 @@ function puzzlepath_quests_page() {
 function puzzlepath_quest_modals() {
     ?>
     <!-- Quest Details Modal -->
-    <div id="quest-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+    <div id="quest-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
         <div style="background-color: #fefefe; margin: 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 90vh; position: relative;">
             <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px;" onclick="closeQuestDetails()">&times;</span>
             <div id="quest-details-content" style="margin-top: 10px;">
@@ -3580,7 +3749,7 @@ function puzzlepath_quest_modals() {
     </div>
     
     <!-- Edit Quest Modal -->
-    <div id="edit-quest-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+    <div id="edit-quest-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
         <div style="background-color: #fefefe; margin: 1% auto 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 95vh; overflow-y: auto; position: relative;">
             <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeEditQuest()">&times;</span>
             <div id="edit-quest-content" style="margin-top: 10px; padding-right: 10px;">
@@ -3590,7 +3759,7 @@ function puzzlepath_quest_modals() {
     </div>
     
     <!-- Manage Clues Modal -->
-    <div id="manage-clues-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+    <div id="manage-clues-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
         <div style="background-color: #fefefe; margin: 1% auto 2% auto; padding: 20px; border: 1px solid #888; width: 95%; max-width: 900px; border-radius: 5px; max-height: 95vh; overflow-y: auto; position: relative;">
             <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeManageClues()">&times;</span>
             <div id="manage-clues-content" style="margin-top: 10px; padding-right: 10px;">
@@ -3600,7 +3769,7 @@ function puzzlepath_quest_modals() {
     </div>
     
     <!-- Add Quest Modal -->
-    <div id="add-quest-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+    <div id="add-quest-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
         <div style="background-color: #fefefe; margin: 1% auto 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 95vh; overflow-y: auto; position: relative;">
             <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeAddQuest()">&times;</span>
             <div id="add-quest-content" style="margin-top: 10px; padding-right: 10px;">
