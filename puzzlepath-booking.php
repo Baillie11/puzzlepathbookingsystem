@@ -2249,20 +2249,20 @@ function puzzlepath_bookings_page() {
     </div>
     
     <!-- Booking Details Modal -->
-    <div id="booking-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
-        <div style="background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 5px;">
-            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;" onclick="closeBookingDetails()">&times;</span>
-            <div id="booking-details-content">
+    <div id="booking-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 90vh; position: relative;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px;" onclick="closeBookingDetails()">&times;</span>
+            <div id="booking-details-content" style="margin-top: 10px;">
                 Loading...
             </div>
         </div>
     </div>
     
     <!-- Edit Booking Modal -->
-    <div id="edit-booking-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
-        <div style="background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 5px;">
-            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;" onclick="closeEditBooking()">&times;</span>
-            <div id="edit-booking-content">
+    <div id="edit-booking-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 1% auto 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 95vh; overflow-y: auto; position: relative;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeEditBooking()">&times;</span>
+            <div id="edit-booking-content" style="margin-top: 10px; padding-right: 10px;">
                 Loading...
             </div>
         </div>
@@ -2303,6 +2303,25 @@ function puzzlepath_bookings_page() {
     }
     .manage-column.sortable:not(.asc):not(.desc):hover .sorting-indicator {
         opacity: 0.8;
+    }
+    
+    /* Compact styling for edit modal */
+    #edit-booking-modal .form-table th {
+        padding: 10px 10px 10px 0;
+        width: 150px;
+    }
+    #edit-booking-modal .form-table td {
+        padding: 10px 10px 10px 0;
+    }
+    #edit-booking-modal .form-table tr {
+        border-bottom: 1px solid #f1f1f1;
+    }
+    #edit-booking-modal .regular-text, #edit-booking-modal .large-text {
+        width: 100%;
+        max-width: 300px;
+    }
+    #edit-booking-modal .small-text {
+        width: 80px;
     }
     </style>
     
@@ -2758,10 +2777,10 @@ function puzzlepath_get_edit_booking_form_ajax() {
     
     ob_start();
     ?>
-    <h2>Edit Booking #<?php echo $booking->id; ?></h2>
+    <h2 style="margin: 0 0 15px 0; padding-right: 40px;">Edit Booking #<?php echo $booking->id; ?></h2>
     
     <form id="edit-booking-form">
-        <table class="form-table">
+        <table class="form-table" style="margin-top: 0;">
             <tr>
                 <th><label for="edit-booking-code">Booking Code:</label></th>
                 <td><input type="text" id="edit-booking-code" name="booking_code" value="<?php echo esc_attr($booking->booking_code); ?>" class="regular-text" readonly style="background: #f7f7f7;" /></td>
@@ -2820,9 +2839,10 @@ function puzzlepath_get_edit_booking_form_ajax() {
         </table>
     </form>
     
-    <div style="margin-top: 20px;">
-        <button type="button" id="edit-booking-save-btn" class="button button-primary" onclick="saveBookingChanges(<?php echo $booking->id; ?>)">Save Changes</button>
+    <div style="margin-top: 20px; padding: 15px 0; border-top: 1px solid #ddd; background: #f9f9f9; margin-left: -20px; margin-right: -20px; padding-left: 20px; padding-right: 20px;">
+        <button type="button" id="edit-booking-save-btn" class="button button-primary" onclick="saveBookingChanges(<?php echo $booking->id; ?>)" style="margin-right: 10px;">Save Changes</button>
         <button type="button" class="button" onclick="closeEditBooking()">Cancel</button>
+        <div style="clear: both;"></div>
     </div>
     <?php
     
