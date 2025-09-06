@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath with unified app integration.
- * Version: 2.7.3
+ * Version: 2.7.4
  * Author: Andrew Baillie
  */
 
@@ -105,7 +105,7 @@ function puzzlepath_activate() {
     // Ensure unified app compatibility by updating existing bookings
     puzzlepath_fix_unified_app_compatibility();
     
-    update_option('puzzlepath_booking_version', '2.7.3');
+    update_option('puzzlepath_booking_version', '2.7.4');
 }
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 
@@ -162,7 +162,7 @@ function puzzlepath_fix_unified_app_compatibility() {
  */
 function puzzlepath_update_db_check() {
     $current_version = get_option('puzzlepath_booking_version', '1.0');
-    if (version_compare($current_version, '2.7.3', '<')) {
+    if (version_compare($current_version, '2.7.4', '<')) {
         puzzlepath_activate();
         // Generate hunt codes for existing events that don't have them
         puzzlepath_generate_missing_hunt_codes();
@@ -185,6 +185,20 @@ function puzzlepath_payment_migration_admin_notice() {
     }
 }
 add_action('admin_notices', 'puzzlepath_payment_migration_admin_notice');
+
+/**
+ * Manual migration function - can be called via URL parameter
+ */
+function puzzlepath_manual_payment_migration() {
+    if (isset($_GET['puzzlepath_migrate']) && current_user_can('manage_options')) {
+        if (wp_verify_nonce($_GET['nonce'], 'puzzlepath_migrate_payments')) {
+            puzzlepath_update_payment_statuses();
+            wp_redirect(admin_url('admin.php?page=puzzlepath-bookings&message=migration_complete'));
+            exit;
+        }
+    }
+}
+add_action('admin_init', 'puzzlepath_manual_payment_migration');
 
 /**
  * Generate unique hunt code based on event details
@@ -942,6 +956,20 @@ function puzzlepath_settings_page() {
         <h2>Shortcode</h2>
         <p>Use this shortcode to display the booking form on any page or post:</p>
         <code>[puzzlepath_booking_form]</code>
+        
+        <h2>Database Maintenance</h2>
+        <table class="form-table">
+            <tr>
+                <th scope="row">Payment Status Migration</th>
+                <td>
+                    <p class="description">If you see bookings with 'succeeded' status instead of 'paid', use this button to migrate them:</p>
+                    <?php $migrate_nonce = wp_create_nonce('puzzlepath_migrate_payments'); ?>
+                    <a href="<?php echo admin_url('admin.php?puzzlepath_migrate=1&nonce=' . $migrate_nonce); ?>" 
+                       class="button button-secondary" 
+                       onclick="return confirm('This will update all succeeded bookings to paid status. Continue?');">Migrate Payment Statuses</a>
+                </td>
+            </tr>
+        </table>
         
         <h2>Quick Links</h2>
         <p>
@@ -1969,6 +1997,9 @@ function puzzlepath_bookings_page() {
                         case 'bulk_emails_sent':
                             $count = isset($_GET['count']) ? intval($_GET['count']) : 0;
                             echo sprintf('Confirmation emails sent for %d booking(s).', $count);
+                            break;
+                        case 'migration_complete':
+                            echo 'Payment status migration completed successfully!';
                             break;
                     }
                     ?>
