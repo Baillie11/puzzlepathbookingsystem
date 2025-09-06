@@ -330,6 +330,7 @@ function puzzlepath_register_admin_menus() {
     add_submenu_page('puzzlepath-booking', 'Bookings', 'Bookings', 'manage_options', 'puzzlepath-bookings', 'puzzlepath_bookings_page');
     add_submenu_page('puzzlepath-booking', 'Events', 'Events', 'manage_options', 'puzzlepath-events', 'puzzlepath_events_page');
     add_submenu_page('puzzlepath-booking', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
+    add_submenu_page('puzzlepath-booking', 'Quests', 'Quests', 'manage_options', 'puzzlepath-quests', 'puzzlepath_quests_page');
     add_submenu_page('puzzlepath-booking', 'Settings', 'Settings', 'manage_options', 'puzzlepath-settings', 'puzzlepath_settings_page');
     add_submenu_page('puzzlepath-booking', 'DB Schema', 'DB Schema', 'manage_options', 'puzzlepath-db-schema', 'puzzlepath_db_schema_page');
     if (class_exists('PuzzlePath_Stripe_Integration')) {
@@ -3010,4 +3011,239 @@ function puzzlepath_db_schema_page() {
     }
     
     echo '</div>';
+}
+
+/**
+ * Quest Management Page
+ */
+function puzzlepath_quests_page() {
+    if (!current_user_can('manage_options')) {
+        wp_die(__('You do not have sufficient permissions to access this page.'));
+    }
+    
+    global $wpdb;
+    $hunts_table = $wpdb->prefix . 'pp_hunts';
+    $clues_table = $wpdb->prefix . 'pp_clues';
+    $completions_table = $wpdb->prefix . 'pp_quest_completions';
+    
+    // Handle actions
+    if (isset($_GET['action'])) {
+        switch ($_GET['action']) {
+            case 'delete':
+                if (isset($_GET['hunt_id']) && wp_verify_nonce($_GET['_wpnonce'], 'delete_quest_' . $_GET['hunt_id'])) {
+                    $hunt_id = intval($_GET['hunt_id']);
+                    
+                    // Delete clues first (foreign key constraint)
+                    $wpdb->delete($clues_table, ['hunt_id' => $hunt_id]);
+                    
+                    // Delete hunt
+                    $wpdb->delete($hunts_table, ['id' => $hunt_id]);
+                    
+                    wp_redirect(admin_url('admin.php?page=puzzlepath-quests&message=deleted'));
+                    exit;
+                }
+                break;
+        }
+    }
+    
+    // Get all quests/hunts with clue counts and completion stats
+    $quests = $wpdb->get_results("
+        SELECT 
+            h.*,
+            COALESCE(clue_counts.clue_count, 0) as clue_count,
+            COALESCE(completion_stats.total_completions, 0) as total_completions,
+            COALESCE(completion_stats.avg_time, 0) as avg_completion_time
+        FROM {$hunts_table} h
+        LEFT JOIN (
+            SELECT hunt_id, COUNT(*) as clue_count 
+            FROM {$clues_table} 
+            WHERE is_active = 1 
+            GROUP BY hunt_id
+        ) clue_counts ON h.id = clue_counts.hunt_id
+        LEFT JOIN (
+            SELECT 
+                h2.id as hunt_id,
+                COUNT(qc.id) as total_completions,
+                AVG(qc.total_time_seconds) as avg_time
+            FROM {$hunts_table} h2
+            LEFT JOIN {$completions_table} qc ON qc.tracking_id = h2.id
+            GROUP BY h2.id
+        ) completion_stats ON h.id = completion_stats.hunt_id
+        ORDER BY h.created_at DESC
+    ");
+    
+    ?>
+    <div class="wrap">
+        <h1>Quest Management 
+            <a href="#" class="page-title-action" onclick="showAddQuestModal(); return false;">Add New Quest</a>
+        </h1>
+        
+        <?php if (isset($_GET['message'])): ?>
+            <div class="notice notice-success is-dismissible">
+                <p>
+                    <?php 
+                    switch($_GET['message']) {
+                        case 'added': echo 'Quest created successfully!'; break;
+                        case 'updated': echo 'Quest updated successfully!'; break;
+                        case 'deleted': echo 'Quest deleted successfully!'; break;
+                    }
+                    ?>
+                </p>
+            </div>
+        <?php endif; ?>
+        
+        <!-- Quest Statistics -->
+        <div class="quest-stats" style="display: flex; gap: 20px; margin-bottom: 20px;">
+            <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #2271b1; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h3 style="margin: 0; color: #2271b1;">Total Quests</h3>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo count($quests); ?></p>
+            </div>
+            <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #00a32a; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h3 style="margin: 0; color: #00a32a;">Active Quests</h3>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo count(array_filter($quests, function($q) { return $q->is_active; })); ?></p>
+            </div>
+            <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #dba617; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h3 style="margin: 0; color: #dba617;">Total Clues</h3>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo array_sum(array_column($quests, 'clue_count')); ?></p>
+            </div>
+            <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #d63638; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h3 style="margin: 0; color: #d63638;">Total Completions</h3>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo array_sum(array_column($quests, 'total_completions')); ?></p>
+            </div>
+        </div>
+        
+        <!-- Quests Table -->
+        <table class="wp-list-table widefat fixed striped">
+            <thead>
+                <tr>
+                    <th>Quest Code</th>
+                    <th>Quest Name</th>
+                    <th>Location</th>
+                    <th>Type/Difficulty</th>
+                    <th>Clues</th>
+                    <th>Duration</th>
+                    <th>Completions</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($quests)): ?>
+                    <tr>
+                        <td colspan="9" style="text-align: center; padding: 20px;">No quests found. <a href="#" onclick="showAddQuestModal()">Create your first quest</a>.</td>
+                    </tr>
+                <?php else: ?>
+                    <?php foreach ($quests as $quest): ?>
+                        <tr>
+                            <td><strong><?php echo esc_html($quest->hunt_code); ?></strong></td>
+                            <td>
+                                <strong><?php echo esc_html($quest->hunt_name); ?></strong>
+                                <?php if ($quest->description): ?>
+                                    <br><small style="color: #666;"><?php echo esc_html(wp_trim_words($quest->description, 8)); ?></small>
+                                <?php endif; ?>
+                            </td>
+                            <td><?php echo esc_html($quest->location ?: 'Not specified'); ?></td>
+                            <td>
+                                <?php if ($quest->difficulty_level): ?>
+                                    <span class="quest-difficulty difficulty-<?php echo esc_attr(strtolower($quest->difficulty_level)); ?>" style="padding: 2px 6px; border-radius: 3px; font-size: 11px; text-transform: uppercase; color: white; background: #666;">
+                                        <?php echo esc_html($quest->difficulty_level); ?>
+                                    </span><br>
+                                <?php endif; ?>
+                                <small>Type: Quest</small>
+                            </td>
+                            <td>
+                                <strong><?php echo $quest->clue_count; ?></strong> clues
+                                <?php if ($quest->total_clues && $quest->clue_count != $quest->total_clues): ?>
+                                    <br><small style="color: #d63638;">(Expected: <?php echo $quest->total_clues; ?>)</small>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($quest->estimated_duration): ?>
+                                    <?php 
+                                    $hours = floor($quest->estimated_duration / 60);
+                                    $minutes = $quest->estimated_duration % 60;
+                                    if ($hours > 0) {
+                                        echo $hours . 'h ' . $minutes . 'm';
+                                    } else {
+                                        echo $minutes . 'm';
+                                    }
+                                    ?>
+                                <?php else: ?>
+                                    <span style="color: #666;">Not set</span>
+                                <?php endif; ?>
+                                <?php if ($quest->avg_completion_time > 0): ?>
+                                    <br><small style="color: #666;">Avg: <?php echo gmdate('H:i:s', $quest->avg_completion_time); ?></small>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <strong><?php echo $quest->total_completions; ?></strong> times
+                            </td>
+                            <td>
+                                <span class="quest-status status-<?php echo $quest->is_active ? 'active' : 'inactive'; ?>" style="padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase; color: white; background: <?php echo $quest->is_active ? '#00a32a' : '#d63638'; ?>;">
+                                    <?php echo $quest->is_active ? 'Active' : 'Inactive'; ?>
+                                </span>
+                            </td>
+                            <td>
+                                <a href="#" onclick="showQuestDetails(<?php echo $quest->id; ?>); return false;" title="View Details">👁️</a>
+                                <a href="#" onclick="editQuest(<?php echo $quest->id; ?>); return false;" title="Edit Quest">✏️</a>
+                                <a href="#" onclick="manageClues(<?php echo $quest->id; ?>); return false;" title="Manage Clues">🧩</a>
+                                <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=delete&hunt_id=' . $quest->id), 'delete_quest_' . $quest->id); ?>" 
+                                   onclick="return confirm('Are you sure you want to delete this quest and all its clues?');" title="Delete Quest">🗑️</a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Modals will be added here -->
+    <?php puzzlepath_quest_modals(); ?>
+    
+    <style>
+    .difficulty-easy { background: #00a32a !important; }
+    .difficulty-medium { background: #dba617 !important; }
+    .difficulty-hard { background: #d63638 !important; }
+    .difficulty-expert { background: #8c8f94 !important; }
+    </style>
+    
+    <script>
+    // JavaScript functions will be added here
+    function showQuestDetails(questId) {
+        // AJAX call to get quest details
+        jQuery.post(ajaxurl, {
+            action: 'get_quest_details',
+            quest_id: questId,
+            nonce: '<?php echo wp_create_nonce('quest_details_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                alert('Quest details: ' + response.data);
+                // Will implement proper modal later
+            } else {
+                alert('Error loading quest details.');
+            }
+        });
+    }
+    
+    function editQuest(questId) {
+        alert('Edit quest functionality coming soon!');
+    }
+    
+    function manageClues(questId) {
+        alert('Clue management functionality coming soon!');
+    }
+    
+    function showAddQuestModal() {
+        alert('Add quest functionality coming soon!');
+    }
+    </script>
+    <?php
+}
+
+/**
+ * Quest modals container
+ */
+function puzzlepath_quest_modals() {
+    // Modal HTML will be added here
+    echo '<!-- Quest modals will be implemented here -->';
 }
