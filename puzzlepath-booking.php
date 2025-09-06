@@ -3130,7 +3130,7 @@ function puzzlepath_quests_page() {
                     <th>Quest Code</th>
                     <th>Quest Name</th>
                     <th>Location</th>
-                    <th>Type/Difficulty</th>
+                    <th>Quest Type</th>
                     <th>Clues</th>
                     <th>Duration</th>
                     <th>Completions</th>
@@ -3155,10 +3155,10 @@ function puzzlepath_quests_page() {
                             </td>
                             <td><?php echo esc_html($quest->location ?: 'Not specified'); ?></td>
                             <td>
-                                <span class="quest-difficulty difficulty-medium" style="padding: 2px 6px; border-radius: 3px; font-size: 11px; text-transform: uppercase; color: white; background: #dba617;">
+                                <span class="quest-type type-<?php echo esc_attr($quest->hosting_type); ?>" style="padding: 2px 6px; border-radius: 3px; font-size: 11px; text-transform: uppercase; color: white; background: <?php echo $quest->hosting_type === 'hosted' ? '#00a32a' : '#2271b1'; ?>;">
                                     <?php echo esc_html($quest->hosting_type === 'hosted' ? 'LIVE' : 'ANYTIME'); ?>
                                 </span><br>
-                                <small>Type: <?php echo esc_html(ucfirst($quest->quest_type)); ?></small>
+                                <small>Quest Type</small>
                             </td>
                             <td>
                                 <strong><?php echo $quest->clue_count; ?></strong> clues
