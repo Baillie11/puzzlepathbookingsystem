@@ -2929,15 +2929,15 @@ function puzzlepath_db_schema_page() {
     
     global $wpdb;
     
-    // Define the quest-related tables we want to examine
+    // Define the quest-related tables we want to examine (with WordPress prefix)
     $quest_tables = [
-        'pp_hunts',
-        'pp_clues', 
-        'pp_clue_tracking',
-        'pp_clue_completions',
-        'pp_quest_completions',
-        'pp_user_medals',
-        'pp_medals'
+        $wpdb->prefix . 'pp_hunts',
+        $wpdb->prefix . 'pp_clues', 
+        $wpdb->prefix . 'pp_clue_tracking',
+        $wpdb->prefix . 'pp_clue_completions',
+        $wpdb->prefix . 'pp_quest_completions',
+        $wpdb->prefix . 'pp_user_medals',
+        $wpdb->prefix . 'pp_medals'
     ];
     
     echo '<div class="wrap">';
