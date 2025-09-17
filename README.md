@@ -33,7 +33,8 @@ A comprehensive WordPress booking plugin for PuzzlePath experiences with advance
 - **Responsive Booking Form** - Mobile-friendly booking interface
 - **AJAX Coupon Validation** - Real-time discount code checking
 - **Progress Indicators** - Visual feedback during booking process
-- **Email Confirmations** - Automated confirmation emails with templates
+- **Professional Email Confirmations** - Branded HTML emails with quest app link
+- **Mobile-Optimized Templates** - Email templates that look great on all devices
 
 ### 📈 **Analytics & Reporting**
 - **Revenue Tracking** - Accurate revenue calculations and reporting
@@ -167,12 +168,13 @@ puzzlepath-booking/
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
-### Latest Release (v2.7.3)
-- ✅ Fixed Total Revenue calculation
-- ✅ Updated payment status system for consistency
-- ✅ Added automatic booking migration
-- ✅ Enhanced admin interface
-- ✅ Improved Stripe integration
+### Latest Release (v2.7.4)
+- ✅ Professional HTML email confirmations with PuzzlePath branding
+- ✅ Direct link to quest app (https://app.puzzlepath.com.au) in emails
+- ✅ Responsive email template that looks great on all devices
+- ✅ Enhanced settings page with template reset functionality
+- ✅ Automatic plain-text fallback for better email deliverability
+- ✅ Improved email template editor with full HTML support
 
 ## 🐛 Troubleshooting
 
@@ -242,8 +244,10 @@ Use the shortcode `[puzzlepath_booking_form]` on any page or post to display the
 ### Settings
 
 1. Go to **PuzzlePath > Settings** in the admin menu
-2. Customize the email template for booking confirmations
-3. Use placeholders: `{name}`, `{event_title}`, `{event_date}`, `{price}`
+2. Customize the HTML email template for booking confirmations
+3. Use placeholders: `{name}`, `{event_title}`, `{event_date}`, `{price}`, `{booking_code}`
+4. Reset to professional default template anytime
+5. Full HTML editor support with media upload capabilities
 
 ## Database Tables
 

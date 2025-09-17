@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath with unified app integration.
- * Version: 2.7.5
+ * Version: 2.7.4
  * Author: Andrew Baillie
  */
 
@@ -70,6 +70,7 @@ function puzzlepath_activate() {
     ) $charset_collate;";
     dbDelta($sql);
     
+    
     // Create compatibility view for unified app
     $view_name = $wpdb->prefix . 'pp_bookings_unified';
     $wpdb->query("DROP VIEW IF EXISTS $view_name");
@@ -102,11 +103,30 @@ function puzzlepath_activate() {
     // Fix created_at column for events table
     $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events MODIFY COLUMN created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL");
     
+    // Add duration_minutes column if it doesn't exist
+    $column_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'duration_minutes'");
+    if (empty($column_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN duration_minutes int(11) DEFAULT NULL AFTER price");
+    }
+    
+    // Add medal_image_url column if it doesn't exist
+    $medal_column_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'medal_image_url'");
+    if (empty($medal_column_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN medal_image_url varchar(500) DEFAULT NULL AFTER duration_minutes");
+    }
+    
+    // Add display_on_site column if it doesn't exist
+    $display_column_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'display_on_site'");
+    if (empty($display_column_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN display_on_site tinyint(1) DEFAULT 0 AFTER medal_image_url");
+    }
+    
     // Ensure unified app compatibility by updating existing bookings
     puzzlepath_fix_unified_app_compatibility();
     
-    update_option('puzzlepath_booking_version', '2.7.5');
+    update_option('puzzlepath_booking_version', '2.8.3');
 }
+
 register_activation_hook(__FILE__, 'puzzlepath_activate');
 
 /**
@@ -162,7 +182,7 @@ function puzzlepath_fix_unified_app_compatibility() {
  */
 function puzzlepath_update_db_check() {
     $current_version = get_option('puzzlepath_booking_version', '1.0');
-    if (version_compare($current_version, '2.7.5', '<')) {
+    if (version_compare($current_version, '2.8.3', '<')) {
         puzzlepath_activate();
         // Generate hunt codes for existing events that don't have them
         puzzlepath_generate_missing_hunt_codes();
@@ -331,15 +351,16 @@ function puzzlepath_register_admin_menus() {
     add_submenu_page('puzzlepath-booking', 'Events', 'Events', 'manage_options', 'puzzlepath-events', 'puzzlepath_events_page');
     add_submenu_page('puzzlepath-booking', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
     add_submenu_page('puzzlepath-booking', 'Quests', 'Quests', 'manage_options', 'puzzlepath-quests', 'puzzlepath_quests_page');
+    add_submenu_page('puzzlepath-booking', 'Quest Import', 'Quest Import', 'edit_posts', 'puzzlepath-quest-import', 'puzzlepath_quest_import_page');
     add_submenu_page('puzzlepath-booking', 'Settings', 'Settings', 'manage_options', 'puzzlepath-settings', 'puzzlepath_settings_page');
-    add_submenu_page('puzzlepath-booking', 'DB Schema', 'DB Schema', 'manage_options', 'puzzlepath-db-schema', 'puzzlepath_db_schema_page');
     if (class_exists('PuzzlePath_Stripe_Integration')) {
         $stripe_instance = PuzzlePath_Stripe_Integration::get_instance();
         add_submenu_page('puzzlepath-booking', 'Stripe Settings', 'Stripe Settings', 'manage_options', 'puzzlepath-stripe-settings', array($stripe_instance, 'stripe_settings_page_content'));
     }
     remove_submenu_page('puzzlepath-booking', 'puzzlepath-booking');
-}
+};
 add_action('admin_menu', 'puzzlepath_register_admin_menus');
+
 
 /**
  * Handle non-payment form submission (deprecated, but kept for safety).
@@ -769,6 +790,438 @@ function puzzlepath_events_page() {
     });
     </script>
     <?php
+}
+
+// ========================= QUEST IMPORT SYSTEM =========================
+
+/**
+ * Display the Quest Import page
+ */
+function puzzlepath_quest_import_page() {
+    
+    if (!current_user_can('edit_posts')) {
+        wp_die(__('You do not have sufficient permissions to access this page. Current user roles: ' . implode(', ', $user_roles)));
+    }
+    
+    $import_result = null;
+    
+    // Handle JSON import submission
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['puzzlepath_import_nonce'])) {
+        if (!wp_verify_nonce($_POST['puzzlepath_import_nonce'], 'puzzlepath_import_quest')) {
+            wp_die('Security check failed.');
+        }
+        
+        $json_data = stripslashes($_POST['quest_json']); // Don't sanitize JSON - it breaks the format
+        $import_result = puzzlepath_process_quest_import($json_data);
+    }
+    ?>
+    <div class="wrap">
+        <h1>🧩 Quest Import</h1>
+        <p>Import quest data from ChatGPT in JSON format. Paste the complete JSON output from the ChatGPT Quest Builder.</p>
+        
+        <?php if ($import_result): ?>
+            <?php if ($import_result['success']): ?>
+                <div class="notice notice-success">
+                    <h3>✅ Import Successful!</h3>
+                    <p><strong>Quest:</strong> <?php echo esc_html($import_result['quest_title']); ?> (<?php echo esc_html($import_result['hunt_code']); ?>)</p>
+                    <p><strong>Clues Imported:</strong> <?php echo intval($import_result['clues_count']); ?></p>
+                    <p><a href="<?php echo admin_url('admin.php?page=puzzlepath-quests'); ?>">View in Quest Management</a></p>
+                </div>
+            <?php else: ?>
+                <div class="notice notice-error">
+                    <h3>❌ Import Failed</h3>
+                    <p><strong>Error:</strong> <?php echo esc_html($import_result['error']); ?></p>
+                    <?php if (isset($import_result['details'])): ?>
+                        <details>
+                            <summary>Technical Details</summary>
+                            <pre><?php echo esc_html($import_result['details']); ?></pre>
+                        </details>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
+        
+        <div class="quest-import-form">
+            <h2>Import Quest JSON</h2>
+            <form method="post" action="">
+                <?php wp_nonce_field('puzzlepath_import_quest', 'puzzlepath_import_nonce'); ?>
+                
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="quest_json">Quest JSON Data</label></th>
+                        <td>
+                            <textarea name="quest_json" id="quest_json" rows="20" cols="100" class="large-text code" placeholder='Paste your ChatGPT quest JSON here...
+
+Example:
+{
+  "quest": {
+    "title": "Sample Quest",
+    "hunt_code": "SQ001",
+    ...
+  },
+  "clues": [
+    {
+      "clue_order": 1,
+      "title": "First Clue",
+      ...
+    }
+  ]
+}'><?php echo (isset($_POST['quest_json']) && (!$import_result || !$import_result['success'])) ? esc_textarea($_POST['quest_json']) : ''; ?></textarea>
+                            <p class="description">Paste the complete JSON output from ChatGPT Quest Builder. Make sure it includes both "quest" and "clues" sections.</p>
+                        </td>
+                    </tr>
+                </table>
+                
+                <?php submit_button('🚀 Import Quest', 'primary', 'submit', false, ['style' => 'font-size: 16px; padding: 10px 20px;']); ?>
+            </form>
+        </div>
+        
+        <div class="quest-import-help" style="margin-top: 40px; padding: 20px; background: #f9f9f9; border-left: 4px solid #2271b1;">
+            <h3>📋 Import Format Requirements</h3>
+            <p>Your JSON must include:</p>
+            <ul>
+                <li><strong>quest</strong> object with: title, hunt_code, location, price, hosting_type</li>
+                <li><strong>clues</strong> array with: clue_order, title, clue_text, answer_text</li>
+            </ul>
+            
+            <h4>🎯 Supported Quest Types:</h4>
+            <ul>
+                <li><strong>hosted</strong> - Live events with specific dates</li>
+                <li><strong>self-hosted</strong> - Customer-scheduled experiences</li>
+                <li><strong>anytime</strong> - Digital/remote quests</li>
+            </ul>
+            
+            <h4>🗺️ Clue Features:</h4>
+            <ul>
+                <li>GPS coordinates (latitude/longitude)</li>
+                <li>Multiple answer types (exact, partial, numeric)</li>
+                <li>Hints and penalty hints</li>
+                <li>Image and audio URLs</li>
+                <li>Geofencing radius</li>
+                <li>Point values and time limits</li>
+            </ul>
+        </div>
+    </div>
+    
+    <style>
+    .quest-import-form textarea {
+        font-family: 'Courier New', monospace;
+        background: #f8f9fa;
+        border: 2px dashed #ddd;
+    }
+    .quest-import-form textarea:focus {
+        border-color: #2271b1;
+        background: #fff;
+    }
+    .quest-import-help {
+        border-radius: 6px;
+    }
+    .quest-import-help h3 {
+        margin-top: 0;
+        color: #2271b1;
+    }
+    .quest-import-help ul {
+        margin-left: 20px;
+    }
+    .quest-import-help li {
+        margin-bottom: 8px;
+    }
+    </style>
+    <?php
+}
+
+/**
+ * Process quest import from JSON data
+ */
+function puzzlepath_process_quest_import($json_data) {
+    global $wpdb;
+    
+    try {
+        // Clean up JSON data
+        $json_data = trim($json_data);
+        
+        // Validate JSON
+        $data = json_decode($json_data, true);
+        $json_error = json_last_error();
+        
+        if ($json_error !== JSON_ERROR_NONE) {
+            $error_msg = 'Invalid JSON format: ' . json_last_error_msg();
+            if ($json_error === JSON_ERROR_SYNTAX) {
+                $error_msg .= '. Check for missing commas, quotes, or brackets.';
+            }
+            return [
+                'success' => false,
+                'error' => $error_msg,
+                'details' => 'JSON Error Code: ' . $json_error . "\nFirst 500 chars: " . substr($json_data, 0, 500)
+            ];
+        }
+        
+        // Validate required structure
+        $validation_result = puzzlepath_validate_quest_json($data);
+        if (!$validation_result['valid']) {
+            return [
+                'success' => false,
+                'error' => $validation_result['error'],
+                'details' => implode("\n", $validation_result['details'])
+            ];
+        }
+        
+        // Start database transaction
+        $wpdb->query('START TRANSACTION');
+        
+        try {
+            // Import quest
+            $quest_result = puzzlepath_import_quest_data($data['quest']);
+            if (!$quest_result['success']) {
+                throw new Exception('Quest import failed: ' . $quest_result['error']);
+            }
+            
+            $event_id = $quest_result['event_id'];
+            $hunt_code = $data['quest']['hunt_code'];
+            
+            // Import clues
+            $clues_result = puzzlepath_import_clues_data($data['clues'], $event_id);
+            if (!$clues_result['success']) {
+                throw new Exception('Clues import failed: ' . $clues_result['error']);
+            }
+            
+            // Commit transaction
+            $wpdb->query('COMMIT');
+            
+            return [
+                'success' => true,
+                'quest_title' => $data['quest']['title'],
+                'hunt_code' => $hunt_code,
+                'event_id' => $event_id,
+                'clues_count' => $clues_result['clues_count']
+            ];
+            
+        } catch (Exception $e) {
+            // Rollback transaction
+            $wpdb->query('ROLLBACK');
+            throw $e;
+        }
+        
+    } catch (Exception $e) {
+        return [
+            'success' => false,
+            'error' => $e->getMessage(),
+            'details' => error_get_last() ? print_r(error_get_last(), true) : 'No additional error details'
+        ];
+    }
+}
+
+/**
+ * Validate quest JSON structure
+ */
+function puzzlepath_validate_quest_json($data) {
+    $errors = [];
+    
+    // Check main structure
+    if (!isset($data['quest']) || !isset($data['clues'])) {
+        return [
+            'valid' => false,
+            'error' => 'JSON must contain both "quest" and "clues" sections',
+            'details' => ['Missing required top-level keys: quest, clues']
+        ];
+    }
+    
+    // Validate quest data
+    $quest = $data['quest'];
+    $required_quest_fields = ['title', 'hunt_code', 'location', 'price'];
+    
+    foreach ($required_quest_fields as $field) {
+        if (empty($quest[$field])) {
+            $errors[] = "Quest missing required field: {$field}";
+        }
+    }
+    
+    // Validate hunt_code format
+    if (isset($quest['hunt_code']) && strlen($quest['hunt_code']) > 10) {
+        $errors[] = 'Hunt code must be 10 characters or less';
+    }
+    
+    // Validate hosting_type
+    if (isset($quest['hosting_type']) && !in_array($quest['hosting_type'], ['hosted', 'self-hosted', 'anytime'])) {
+        $errors[] = 'Invalid hosting_type. Must be: hosted, self-hosted, or anytime';
+    }
+    
+    // Validate clues
+    if (!is_array($data['clues']) || empty($data['clues'])) {
+        $errors[] = 'Clues must be a non-empty array';
+    } else {
+        foreach ($data['clues'] as $i => $clue) {
+            $clue_errors = puzzlepath_validate_clue_data($clue, $i + 1);
+            $errors = array_merge($errors, $clue_errors);
+        }
+        
+        // Check clue order sequence
+        $orders = array_column($data['clues'], 'clue_order');
+        $expected_orders = range(1, count($data['clues']));
+        if (array_diff($expected_orders, $orders)) {
+            $errors[] = 'Clue orders must be sequential starting from 1';
+        }
+    }
+    
+    return [
+        'valid' => empty($errors),
+        'error' => empty($errors) ? '' : 'Validation failed',
+        'details' => $errors
+    ];
+}
+
+/**
+ * Validate individual clue data
+ */
+function puzzlepath_validate_clue_data($clue, $clue_number) {
+    $errors = [];
+    $required_fields = ['clue_order', 'clue_text', 'answer_text'];
+    
+    foreach ($required_fields as $field) {
+        if (empty($clue[$field])) {
+            $errors[] = "Clue #{$clue_number} missing required field: {$field}";
+        }
+    }
+    
+    // Validate answer_type
+    if (isset($clue['answer_type']) && !in_array($clue['answer_type'], ['exact', 'partial', 'numeric', 'multiple_choice'])) {
+        $errors[] = "Clue #{$clue_number} has invalid answer_type. Must be: exact, partial, numeric, or multiple_choice";
+    }
+    
+    // Validate coordinates if provided
+    if (isset($clue['latitude']) && (abs($clue['latitude']) > 90)) {
+        $errors[] = "Clue #{$clue_number} has invalid latitude (must be between -90 and 90)";
+    }
+    
+    if (isset($clue['longitude']) && (abs($clue['longitude']) > 180)) {
+        $errors[] = "Clue #{$clue_number} has invalid longitude (must be between -180 and 180)";
+    }
+    
+    return $errors;
+}
+
+/**
+ * Import quest data into pp_events table only
+ */
+function puzzlepath_import_quest_data($quest_data) {
+    global $wpdb;
+    $events_table = $wpdb->prefix . 'pp_events';
+    
+    try {
+        // Check if hunt_code already exists
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$events_table} WHERE hunt_code = %s",
+            $quest_data['hunt_code']
+        ));
+        
+        if ($existing) {
+            return [
+                'success' => false,
+                'error' => 'Hunt code "' . $quest_data['hunt_code'] . '" already exists. Please use a different hunt code.'
+            ];
+        }
+        
+        // Map JSON data to pp_events table structure
+        $db_data = [
+            'title' => sanitize_text_field($quest_data['title']),
+            'hunt_code' => sanitize_text_field($quest_data['hunt_code']),
+            'hunt_name' => isset($quest_data['hunt_name']) ? sanitize_text_field($quest_data['hunt_name']) : sanitize_text_field($quest_data['title']),
+            'hosting_type' => isset($quest_data['hosting_type']) ? sanitize_text_field($quest_data['hosting_type']) : 'self-hosted',
+            'event_date' => !empty($quest_data['event_date']) ? $quest_data['event_date'] : null,
+            'location' => sanitize_text_field($quest_data['location']),
+            'price' => floatval($quest_data['price']),
+            'seats' => isset($quest_data['seats']) ? intval($quest_data['seats']) : 50,
+            'duration_minutes' => isset($quest_data['duration_minutes']) ? intval($quest_data['duration_minutes']) : null,
+            'medal_image_url' => isset($quest_data['medal_image_url']) ? esc_url_raw($quest_data['medal_image_url']) : null,
+            'display_on_site' => isset($quest_data['display_on_site']) ? intval($quest_data['display_on_site']) : 0
+        ];
+        
+        $result = $wpdb->insert($events_table, $db_data);
+        
+        if ($result === false) {
+            return [
+                'success' => false,
+                'error' => 'Database error: ' . $wpdb->last_error
+            ];
+        }
+        
+        return [
+            'success' => true,
+            'event_id' => $wpdb->insert_id
+        ];
+        
+    } catch (Exception $e) {
+        return [
+            'success' => false,
+            'error' => 'Exception during quest import: ' . $e->getMessage()
+        ];
+    }
+}
+
+/**
+ * Import clues data into pp_clues table
+ */
+function puzzlepath_import_clues_data($clues_data, $event_id) {
+    global $wpdb;
+    $clues_table = $wpdb->prefix . 'pp_clues';
+    
+    try {
+        $imported_count = 0;
+        
+        foreach ($clues_data as $clue) {
+            // Map JSON data to pp_clues table structure
+            $db_data = [
+                'hunt_id' => intval($event_id), // This is the event ID from pp_events
+                'clue_order' => intval($clue['clue_order']),
+                'title' => isset($clue['title']) ? sanitize_text_field($clue['title']) : '',
+                'clue_text' => sanitize_textarea_field($clue['clue_text']),
+                'task_description' => isset($clue['task_description']) ? sanitize_textarea_field($clue['task_description']) : null,
+                'hint_text' => isset($clue['hint_text']) ? sanitize_textarea_field($clue['hint_text']) : null,
+                'answer' => sanitize_text_field($clue['answer_text']), // Your table uses 'answer' not 'answer_text'
+                'latitude' => isset($clue['latitude']) ? floatval($clue['latitude']) : null,
+                'longitude' => isset($clue['longitude']) ? floatval($clue['longitude']) : null,
+                'geofence_radius' => isset($clue['geofence_radius']) ? intval($clue['geofence_radius']) : null,
+                'image_url' => isset($clue['image_url']) ? esc_url_raw($clue['image_url']) : null,
+                'is_active' => isset($clue['is_active']) ? intval($clue['is_active']) : 1
+            ];
+            
+            // Handle alternative answers - store as hint_text if not already used
+            if (isset($clue['alternative_answers']) && !empty($clue['alternative_answers']) && empty($db_data['hint_text'])) {
+                $db_data['hint_text'] = 'Alternative answers: ' . implode(', ', $clue['alternative_answers']);
+            } elseif (isset($clue['alternative_answers']) && !empty($clue['alternative_answers'])) {
+                // Append to existing hint_text
+                $db_data['hint_text'] .= ' | Alternative answers: ' . implode(', ', $clue['alternative_answers']);
+            }
+            
+            // Handle penalty hint - append to hint_text if exists
+            if (isset($clue['penalty_hint']) && !empty($clue['penalty_hint'])) {
+                if (empty($db_data['hint_text'])) {
+                    $db_data['hint_text'] = 'Penalty hint: ' . $clue['penalty_hint'];
+                } else {
+                    $db_data['hint_text'] .= ' | Penalty hint: ' . $clue['penalty_hint'];
+                }
+            }
+            
+            $result = $wpdb->insert($clues_table, $db_data);
+            
+            if ($result === false) {
+                throw new Exception('Failed to insert clue #' . $clue['clue_order'] . ': ' . $wpdb->last_error);
+            }
+            
+            $imported_count++;
+        }
+        
+        return [
+            'success' => true,
+            'clues_count' => $imported_count
+        ];
+        
+    } catch (Exception $e) {
+        return [
+            'success' => false,
+            'error' => $e->getMessage()
+        ];
+    }
 }
 
 // ========================= COUPONS MANAGEMENT =========================
@@ -1212,38 +1665,88 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
             global $wpdb;
             $event = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pp_events WHERE id = %d", $booking->event_id));
             
-            $template = get_option('puzzlepath_email_template', 'Dear {name},\n\nThank you for your booking!\n\nBooking Details:\nEvent: {event_title}\nDate: {event_date}\nPrice: {price}\nBooking Code: {booking_code}\n\nRegards,\nPuzzlePath Team');
+            // Get HTML template (fallback to default if not set) 
+            $template = get_option('puzzlepath_email_template', puzzlepath_get_default_html_template());
             
-            $message = str_replace(
-                ['{name}', '{event_title}', '{event_date}', '{price}', '{booking_code}'],
-                [$booking->customer_name, $event ? $event->title : '', $event && $event->event_date ? $event->event_date : '', '$' . number_format($booking->total_price, 2), $booking_code],
+            // Get plugin URL for logo
+            $plugin_url = plugin_dir_url(__FILE__);
+            $logo_url = $plugin_url . 'images/puzzlepath-logo.png';
+            
+            // Format event date
+            $formatted_date = $event && $event->event_date ? date('F j, Y \a\t g:i A', strtotime($event->event_date)) : 'TBD';
+            
+            // Replace placeholders
+            $html_message = str_replace(
+                ['{name}', '{event_title}', '{event_date}', '{price}', '{booking_code}', '{logo_url}', '{app_url}'],
+                [
+                    $booking->customer_name, 
+                    $event ? $event->title : 'Your Event', 
+                    $formatted_date,
+                    '$' . number_format($booking->total_price, 2), 
+                    $booking_code,
+                    $logo_url,
+                    'https://app.puzzlepath.com.au'
+                ],
                 $template
             );
             
-            // Debug logging
-            error_log('PuzzlePath Email Debug: Attempting to send email to ' . $to);
-            error_log('PuzzlePath Email Debug: Subject: ' . $subject);
-            error_log('PuzzlePath Email Debug: Message: ' . $message);
+            // Create a unique filter name to avoid conflicts
+            $filter_name = 'puzzlepath_mail_content_type_' . uniqid();
             
-            // Add hooks to debug wp_mail
-            add_action('wp_mail_failed', function($wp_error) {
-                error_log('PuzzlePath Email Debug: wp_mail failed: ' . $wp_error->get_error_message());
-            });
+            // Set content type to HTML with a unique filter
+            add_filter('wp_mail_content_type', function() { return 'text/html'; }, 10, 0);
             
-            // Check current mail settings
-            error_log('PuzzlePath Email Debug: WordPress admin email: ' . get_option('admin_email'));
-            error_log('PuzzlePath Email Debug: WordPress site URL: ' . get_site_url());
+            // Set headers for HTML email (remove Content-Type since we're using the filter)
+            $headers = [];
+            $headers[] = 'From: PuzzlePath <bookings@puzzlepath.com.au>';
             
-            $mail_result = wp_mail($to, $subject, $message);
+            // Debug logging (only if WP_DEBUG is enabled)
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('PuzzlePath Email Debug: Attempting to send HTML email to ' . $to);
+                error_log('PuzzlePath Email Debug: Subject: ' . $subject);
+                error_log('PuzzlePath Email Debug: Logo URL: ' . $logo_url);
+                error_log('PuzzlePath Email Debug: App URL: https://app.puzzlepath.com.au');
+                
+                add_action('wp_mail_failed', function($wp_error) {
+                    error_log('PuzzlePath Email Debug: wp_mail failed: ' . $wp_error->get_error_message());
+                });
+            }
             
-            if ($mail_result) {
-                error_log('PuzzlePath Email Debug: wp_mail returned TRUE - WordPress thinks email was sent');
-            } else {
-                error_log('PuzzlePath Email Debug: wp_mail returned FALSE - Email definitely failed');
+            // Add PHPMailer action to set plain-text alternative and ensure HTML content type
+            $phpmailer_callback = function($phpmailer) use ($html_message) {
+                // Ensure we're sending HTML
+                $phpmailer->isHTML(true);
+                $phpmailer->CharSet = 'UTF-8';
+                
+                // Generate plain-text version for AltBody
+                $plain_text = wp_strip_all_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $html_message));
+                $plain_text = html_entity_decode($plain_text, ENT_QUOTES, 'UTF-8');
+                $phpmailer->AltBody = $plain_text;
+                
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('PuzzlePath Email Debug: PHPMailer ContentType set to: ' . $phpmailer->ContentType);
+                }
+            };
+            
+            add_action('phpmailer_init', $phpmailer_callback);
+            
+            $mail_result = wp_mail($to, $subject, $html_message, $headers);
+            
+            // Clean up filters and actions
+            remove_filter('wp_mail_content_type', function() { return 'text/html'; }, 10);
+            remove_action('phpmailer_init', $phpmailer_callback);
+            
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                if ($mail_result) {
+                    error_log('PuzzlePath Email Debug: HTML email sent successfully');
+                } else {
+                    error_log('PuzzlePath Email Debug: HTML email failed to send');
+                }
             }
             
             return $mail_result;
         }
+        
 
         /**
          * Process free booking (100% discount or $0 total)
@@ -2920,98 +3423,6 @@ function puzzlepath_save_booking_changes_ajax() {
 }
 add_action('wp_ajax_save_booking_changes', 'puzzlepath_save_booking_changes_ajax');
 
-/**
- * Temporary function to display database schema for quest tables
- */
-function puzzlepath_db_schema_page() {
-    if (!current_user_can('manage_options')) {
-        wp_die(__('You do not have sufficient permissions to access this page.'));
-    }
-    
-    global $wpdb;
-    
-    // Define the quest-related tables we want to examine (with WordPress prefix)
-    $quest_tables = [
-        $wpdb->prefix . 'pp_hunts',
-        $wpdb->prefix . 'pp_clues', 
-        $wpdb->prefix . 'pp_clue_tracking',
-        $wpdb->prefix . 'pp_clue_completions',
-        $wpdb->prefix . 'pp_quest_completions',
-        $wpdb->prefix . 'pp_user_medals',
-        $wpdb->prefix . 'pp_medals'
-    ];
-    
-    echo '<div class="wrap">';
-    echo '<h1>Database Schema for Quest Tables</h1>';
-    echo '<p>This page shows the structure of quest-related tables to help build the Quest Management interface.</p>';
-    
-    foreach ($quest_tables as $table_name) {
-        echo '<h2>Table: ' . esc_html($table_name) . '</h2>';
-        
-        // Check if table exists
-        $table_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name));
-        
-        if ($table_exists) {
-            // Get table structure
-            $columns = $wpdb->get_results("DESCRIBE $table_name");
-            
-            if ($columns) {
-                echo '<table class="wp-list-table widefat fixed striped" style="margin-bottom: 20px;">';
-                echo '<thead><tr><th>Field</th><th>Type</th><th>Null</th><th>Key</th><th>Default</th><th>Extra</th></tr></thead>';
-                echo '<tbody>';
-                
-                foreach ($columns as $column) {
-                    echo '<tr>';
-                    echo '<td><strong>' . esc_html($column->Field) . '</strong></td>';
-                    echo '<td>' . esc_html($column->Type) . '</td>';
-                    echo '<td>' . esc_html($column->Null) . '</td>';
-                    echo '<td>' . esc_html($column->Key) . '</td>';
-                    echo '<td>' . esc_html($column->Default ?: 'NULL') . '</td>';
-                    echo '<td>' . esc_html($column->Extra) . '</td>';
-                    echo '</tr>';
-                }
-                
-                echo '</tbody></table>';
-                
-                // Show sample data (first 3 rows)
-                $sample_data = $wpdb->get_results("SELECT * FROM $table_name LIMIT 3");
-                if ($sample_data) {
-                    echo '<h4>Sample Data (First 3 rows):</h4>';
-                    echo '<table class="wp-list-table widefat fixed striped" style="margin-bottom: 30px;">';
-                    
-                    // Header
-                    echo '<thead><tr>';
-                    foreach ($columns as $column) {
-                        echo '<th>' . esc_html($column->Field) . '</th>';
-                    }
-                    echo '</tr></thead>';
-                    
-                    // Data rows
-                    echo '<tbody>';
-                    foreach ($sample_data as $row) {
-                        echo '<tr>';
-                        foreach ($row as $value) {
-                            echo '<td>' . esc_html($value ?: 'NULL') . '</td>';
-                        }
-                        echo '</tr>';
-                    }
-                    echo '</tbody></table>';
-                } else {
-                    echo '<p><em>No data found in this table.</em></p>';
-                }
-                
-            } else {
-                echo '<p><em>Could not retrieve table structure.</em></p>';
-            }
-        } else {
-            echo '<p><em>Table does not exist.</em></p>';
-        }
-        
-        echo '<hr style="margin: 30px 0;">';
-    }
-    
-    echo '</div>';
-}
 
 /**
  * AJAX handler for quest details
@@ -3061,8 +3472,8 @@ function puzzlepath_get_quest_details_ajax() {
     
     // Get clue count and booking stats
     $clue_count = $wpdb->get_var($wpdb->prepare(
-        "SELECT COUNT(*) FROM {$clues_table} WHERE hunt_id = %s AND is_active = 1",
-        $quest->hunt_code
+        "SELECT COUNT(*) FROM {$clues_table} WHERE hunt_id = %d AND is_active = 1",
+        $quest->id
     ));
     
     $booking_stats = $wpdb->get_row($wpdb->prepare(
@@ -3118,6 +3529,33 @@ function puzzlepath_get_quest_details_ajax() {
             <th>Number of Clues:</th>
             <td><?php echo $clue_count ?: 0; ?> clues</td>
         </tr>
+        <?php if ($quest->duration_minutes): ?>
+        <tr>
+            <th>Duration:</th>
+            <td>
+                <?php 
+                $hours = floor($quest->duration_minutes / 60);
+                $minutes = $quest->duration_minutes % 60;
+                if ($hours > 0 && $minutes > 0) {
+                    echo $hours . 'h ' . $minutes . 'm';
+                } elseif ($hours > 0) {
+                    echo $hours . ' hour' . ($hours > 1 ? 's' : '');
+                } else {
+                    echo $minutes . ' minutes';
+                }
+                ?>
+            </td>
+        </tr>
+        <?php endif; ?>
+        <?php if ($quest->medal_image_url): ?>
+        <tr>
+            <th>Medal Image:</th>
+            <td>
+                <img src="<?php echo esc_url($quest->medal_image_url); ?>" alt="Quest Medal" style="max-width: 120px; max-height: 120px; border: 2px solid #ddd; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" />
+                <p><small><a href="<?php echo esc_url($quest->medal_image_url); ?>" target="_blank">View full size</a></small></p>
+            </td>
+        </tr>
+        <?php endif; ?>
         <tr>
             <th>Total Bookings:</th>
             <td><?php echo $booking_stats->total_bookings ?: 0; ?> bookings</td>
@@ -3136,6 +3574,15 @@ function puzzlepath_get_quest_details_ajax() {
                 <span style="background: <?php echo in_array($quest->hosting_type, ['hosted', 'self-hosted']) ? '#00a32a' : '#d63638'; ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
                     <?php echo in_array($quest->hosting_type, ['hosted', 'self-hosted']) ? 'ACTIVE' : 'INACTIVE'; ?>
                 </span>
+            </td>
+        </tr>
+        <tr>
+            <th>Display on Site:</th>
+            <td>
+                <span style="background: <?php echo $quest->display_on_site ? '#00a32a' : '#666'; ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
+                    <?php echo $quest->display_on_site ? '👁️ VISIBLE' : '🚫 HIDDEN'; ?>
+                </span>
+                <p><small><?php echo $quest->display_on_site ? 'This quest appears on the public website' : 'This quest is hidden from public view'; ?></small></p>
             </td>
         </tr>
         <tr>
@@ -3240,6 +3687,42 @@ function puzzlepath_get_edit_quest_form_ajax() {
                 <th><label for="edit-seats">Available Seats:</label></th>
                 <td><input type="number" id="edit-seats" name="seats" value="<?php echo esc_attr($quest->seats); ?>" min="1" max="1000" class="small-text" required /></td>
             </tr>
+            <tr>
+                <th><label for="edit-duration">Duration (minutes):</label></th>
+                <td>
+                    <input type="number" id="edit-duration" name="duration_minutes" value="<?php echo esc_attr($quest->duration_minutes ?: ''); ?>" min="0" max="600" class="small-text" placeholder="e.g., 90" />
+                    <p class="description">Expected time to complete the quest in minutes (optional)</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="edit-medal-image">Medal Image:</label></th>
+                <td>
+                    <div id="medal-image-container">
+                        <?php if ($quest->medal_image_url): ?>
+                            <div id="current-medal-image" style="margin-bottom: 10px;">
+                                <img src="<?php echo esc_url($quest->medal_image_url); ?>" alt="Current Medal" style="max-width: 100px; max-height: 100px; border: 2px solid #ddd; border-radius: 5px;" />
+                                <p><small>Current medal image</small></p>
+                            </div>
+                        <?php endif; ?>
+                        <input type="file" id="edit-medal-image" name="medal_image" accept="image/*" style="margin-bottom: 5px;" />
+                        <input type="hidden" id="edit-medal-image-url" name="medal_image_url" value="<?php echo esc_attr($quest->medal_image_url ?: ''); ?>" />
+                        <p class="description">Upload a medal image for quest completion (JPG, PNG, GIF - max 4MB)</p>
+                        <?php if ($quest->medal_image_url): ?>
+                            <p><button type="button" class="button" onclick="removeMedalImage()">Remove Current Image</button></p>
+                        <?php endif; ?>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="edit-display-on-site">Display on Site:</label></th>
+                <td>
+                    <label style="display: flex; align-items: center;">
+                        <input type="checkbox" id="edit-display-on-site" name="display_on_site" value="1" <?php echo $quest->display_on_site ? 'checked' : ''; ?> style="margin-right: 8px;" />
+                        <span>Make this quest visible on the public website</span>
+                    </label>
+                    <p class="description">When checked, this quest will appear in public listings and be available for booking</p>
+                </td>
+            </tr>
         </table>
     </form>
     
@@ -3283,7 +3766,21 @@ function puzzlepath_save_quest_changes_ajax() {
     $hosting_type = sanitize_text_field($_POST['hosting_type']);
     $price = floatval($_POST['price']);
     $seats = intval($_POST['seats']);
+    $duration_minutes = !empty($_POST['duration_minutes']) ? intval($_POST['duration_minutes']) : null;
+    $medal_image_url = sanitize_text_field($_POST['medal_image_url']);
+    $display_on_site = isset($_POST['display_on_site']) ? 1 : 0;
     $event_date = !empty($_POST['event_date']) ? sanitize_text_field($_POST['event_date']) : null;
+    
+    // Handle medal image upload
+    if (!empty($_FILES['medal_image']['name'])) {
+        $upload_result = puzzlepath_handle_medal_image_upload($_FILES['medal_image']);
+        if ($upload_result['success']) {
+            $medal_image_url = $upload_result['url'];
+        } else {
+            wp_send_json_error('Medal image upload failed: ' . $upload_result['error']);
+            return;
+        }
+    }
     
     // Validation
     if (empty($title) || empty($location) || $price < 0 || $seats < 1) {
@@ -3303,7 +3800,10 @@ function puzzlepath_save_quest_changes_ajax() {
         'location' => $location,
         'hosting_type' => $hosting_type,
         'price' => $price,
-        'seats' => $seats
+        'seats' => $seats,
+        'duration_minutes' => $duration_minutes,
+        'medal_image_url' => $medal_image_url,
+        'display_on_site' => $display_on_site
     ];
     
     if ($event_date) {
@@ -3317,7 +3817,7 @@ function puzzlepath_save_quest_changes_ajax() {
         $events_table,
         $update_data,
         ['id' => $quest_id],
-        ['%s', '%s', '%s', '%s', '%f', '%d', '%s'],
+        ['%s', '%s', '%s', '%s', '%f', '%d', '%d', '%s', '%d'],
         ['%d']
     );
     
@@ -3329,6 +3829,46 @@ function puzzlepath_save_quest_changes_ajax() {
     wp_send_json_success('Quest updated successfully!');
 }
 add_action('wp_ajax_save_quest_changes', 'puzzlepath_save_quest_changes_ajax');
+
+/**
+ * AJAX handler for toggling quest display on site
+ */
+function puzzlepath_toggle_quest_display_ajax() {
+    check_ajax_referer('toggle_quest_display_nonce', 'nonce');
+    
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+        return;
+    }
+    
+    global $wpdb;
+    $events_table = $wpdb->prefix . 'pp_events';
+    
+    $quest_id = intval($_POST['quest_id']);
+    $display_on_site = intval($_POST['display_on_site']);
+    
+    if (!$quest_id) {
+        wp_send_json_error('Invalid quest ID provided');
+        return;
+    }
+    
+    // Update display status
+    $result = $wpdb->update(
+        $events_table,
+        ['display_on_site' => $display_on_site],
+        ['id' => $quest_id],
+        ['%d'],
+        ['%d']
+    );
+    
+    if ($result === false) {
+        wp_send_json_error('Database error: Could not update display status. ' . $wpdb->last_error);
+        return;
+    }
+    
+    wp_send_json_success($display_on_site ? 'Quest is now visible on site' : 'Quest is now hidden from site');
+}
+add_action('wp_ajax_toggle_quest_display', 'puzzlepath_toggle_quest_display_ajax');
 
 /**
  * AJAX handler for quest clues management
@@ -3365,8 +3905,8 @@ function puzzlepath_get_quest_clues_ajax() {
     
     // Get all clues for this quest
     $clues = $wpdb->get_results($wpdb->prepare(
-        "SELECT * FROM {$clues_table} WHERE hunt_id = %s ORDER BY clue_order ASC",
-        $quest->hunt_code
+        "SELECT * FROM {$clues_table} WHERE hunt_id = %d ORDER BY clue_order ASC",
+        $quest->id
     ));
     
     ob_start();
@@ -3549,6 +4089,31 @@ function puzzlepath_quests_page() {
                     exit;
                 }
                 break;
+                
+            case 'delete':
+                if (isset($_GET['event_id']) && wp_verify_nonce($_GET['_wpnonce'], 'delete_quest_' . $_GET['event_id'])) {
+                    $event_id = intval($_GET['event_id']);
+                    
+                    // Get quest details before deletion for logging
+                    $quest = $wpdb->get_row($wpdb->prepare("SELECT hunt_code, title FROM {$events_table} WHERE id = %d", $event_id));
+                    
+                    if ($quest) {
+                        // Delete associated clues first
+                        $wpdb->delete($clues_table, ['hunt_id' => $event_id]);
+                        
+                        // Delete the quest/event
+                        $wpdb->delete($events_table, ['id' => $event_id]);
+                        
+                        // Note: We're not deleting bookings or completions to preserve historical data
+                        // If you want to delete those too, uncomment the following lines:
+                        // $wpdb->delete($bookings_table, ['event_id' => $event_id]);
+                        // $wpdb->delete($completions_table, ['event_id' => $event_id]);
+                    }
+                    
+                    wp_redirect(admin_url('admin.php?page=puzzlepath-quests&message=deleted'));
+                    exit;
+                }
+                break;
         }
     }
     
@@ -3574,7 +4139,7 @@ function puzzlepath_quests_page() {
             FROM {$clues_table} 
             WHERE is_active = 1 
             GROUP BY hunt_id
-        ) clue_counts ON e.hunt_code = clue_counts.hunt_id
+        ) clue_counts ON e.id = clue_counts.hunt_id
         LEFT JOIN (
             SELECT 
                 event_id,
@@ -3641,13 +4206,14 @@ function puzzlepath_quests_page() {
                     <th>Duration</th>
                     <th>Completions</th>
                     <th>Status</th>
+                    <th>Display</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($quests)): ?>
                     <tr>
-                        <td colspan="9" style="text-align: center; padding: 20px;">No quests found. <a href="#" onclick="showAddQuestModal()">Create your first quest</a>.</td>
+                        <td colspan="10" style="text-align: center; padding: 20px;">No quests found. <a href="#" onclick="showAddQuestModal()">Create your first quest</a>.</td>
                     </tr>
                 <?php else: ?>
                     <?php foreach ($quests as $quest): ?>
@@ -3673,7 +4239,23 @@ function puzzlepath_quests_page() {
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <span style="color: #666;">Duration: TBD</span><br>
+                                <?php 
+                                if ($quest->duration_minutes && $quest->duration_minutes > 0) {
+                                    $hours = floor($quest->duration_minutes / 60);
+                                    $minutes = $quest->duration_minutes % 60;
+                                    
+                                    if ($hours > 0 && $minutes > 0) {
+                                        $duration_text = $hours . 'h ' . $minutes . 'm';
+                                    } elseif ($hours > 0) {
+                                        $duration_text = $hours . ' hour' . ($hours > 1 ? 's' : '');
+                                    } else {
+                                        $duration_text = $minutes . ' min';
+                                    }
+                                    echo '<span style="color: #2271b1; font-weight: 600;">⏱️ ' . $duration_text . '</span>';
+                                } else {
+                                    echo '<span style="color: #999;">Duration: TBD</span>';
+                                }
+                                ?><br>
                                 <small>Price: $<?php echo number_format($quest->price, 2); ?></small>
                                 <?php if ($quest->event_date): ?>
                                     <br><small style="color: #666;">Next: <?php echo date('M j, Y', strtotime($quest->event_date)); ?></small>
@@ -3687,6 +4269,16 @@ function puzzlepath_quests_page() {
                                     <?php echo $quest->is_active ? 'Active' : 'Inactive'; ?>
                                 </span>
                             </td>
+                            <td style="text-align: center;">
+                                <label class="display-toggle" style="display: inline-flex; align-items: center; cursor: pointer;">
+                                    <input type="checkbox" 
+                                           id="display_<?php echo $quest->id; ?>" 
+                                           <?php echo $quest->display_on_site ? 'checked' : ''; ?> 
+                                           onchange="toggleQuestDisplay(<?php echo $quest->id; ?>, this.checked)"
+                                           style="margin: 0; margin-right: 5px;" />
+                                    <span style="font-size: 11px; color: #666;"><?php echo $quest->display_on_site ? 'Visible' : 'Hidden'; ?></span>
+                                </label>
+                            </td>
                             <td>
                                 <a href="#" onclick="showQuestDetails(<?php echo $quest->id; ?>); return false;" title="View Details">👁️</a>
                                 <a href="#" onclick="editQuest(<?php echo $quest->id; ?>); return false;" title="Edit Quest">✏️</a>
@@ -3698,6 +4290,9 @@ function puzzlepath_quests_page() {
                                     <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=activate&event_id=' . $quest->id), 'activate_quest_' . $quest->id); ?>" 
                                        onclick="return confirm('Are you sure you want to activate this quest?');" title="Activate Quest">✅</a>
                                 <?php endif; ?>
+                                <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=delete&event_id=' . $quest->id), 'delete_quest_' . $quest->id); ?>" 
+                                   onclick="return confirmDeleteQuest('<?php echo esc_js($quest->quest_name ?: $quest->title); ?>', '<?php echo esc_js($quest->quest_code ?: $quest->hunt_code); ?>');" 
+                                   title="Delete Quest" style="color: #d63638; text-decoration: none;">🗑️</a>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -3879,6 +4474,96 @@ function puzzlepath_quests_page() {
         });
     }
     
+    // Medal Image Functions
+    function removeMedalImage() {
+        if (confirm('Are you sure you want to remove the current medal image?')) {
+            document.getElementById('current-medal-image').style.display = 'none';
+            document.getElementById('edit-medal-image-url').value = '';
+            document.getElementById('edit-medal-image').value = '';
+        }
+    }
+    
+    // Handle medal image file selection
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add event listener when the edit modal content is loaded
+        jQuery(document).on('change', '#edit-medal-image', function(e) {
+            var file = e.target.files[0];
+            if (file) {
+                // Validate file size (4MB max)
+                if (file.size > 4 * 1024 * 1024) {
+                    alert('File size must be less than 4MB');
+                    e.target.value = '';
+                    return;
+                }
+                
+                // Validate file type
+                if (!file.type.match('image.*')) {
+                    alert('Please select a valid image file');
+                    e.target.value = '';
+                    return;
+                }
+                
+                // Show preview
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    var currentImage = document.getElementById('current-medal-image');
+                    if (currentImage) {
+                        currentImage.querySelector('img').src = e.target.result;
+                        currentImage.querySelector('p small').textContent = 'New medal image (preview)';
+                        currentImage.style.display = 'block';
+                    } else {
+                        // Create preview if none exists
+                        var preview = '<div id="current-medal-image" style="margin-bottom: 10px;">' +
+                                     '<img src="' + e.target.result + '" alt="Medal Preview" style="max-width: 100px; max-height: 100px; border: 2px solid #ddd; border-radius: 5px;" />' +
+                                     '<p><small>New medal image (preview)</small></p>' +
+                                     '</div>';
+                        document.getElementById('medal-image-container').insertAdjacentHTML('afterbegin', preview);
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    });
+    
+    // Toggle Quest Display on Site
+    function toggleQuestDisplay(questId, isDisplayed) {
+        var statusText = document.querySelector('#display_' + questId).parentNode.querySelector('span');
+        var originalText = statusText.textContent;
+        statusText.textContent = 'Updating...';
+        
+        jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', {
+            action: 'toggle_quest_display',
+            quest_id: questId,
+            display_on_site: isDisplayed ? 1 : 0,
+            nonce: '<?php echo wp_create_nonce('toggle_quest_display_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                statusText.textContent = isDisplayed ? 'Visible' : 'Hidden';
+                statusText.style.color = isDisplayed ? '#00a32a' : '#666';
+            } else {
+                alert('Error: ' + response.data);
+                document.getElementById('display_' + questId).checked = !isDisplayed;
+                statusText.textContent = originalText;
+            }
+        }).fail(function() {
+            alert('Network error occurred while updating display status');
+            document.getElementById('display_' + questId).checked = !isDisplayed;
+            statusText.textContent = originalText;
+        });
+    }
+    
+    // Delete Quest Confirmation
+    function confirmDeleteQuest(questName, questCode) {
+        var message = 'Are you sure you want to delete the quest "' + questName + '" (' + questCode + ')?\n\n' +
+                     'This action will permanently delete:\n' +
+                     '• The quest and all its details\n' +
+                     '• All associated clues\n\n' +
+                     'This action cannot be undone!\n\n' +
+                     'Note: Booking history and completion records will be preserved.';
+        
+        return confirm(message);
+    }
+    
     // Close modals when clicking outside
     window.onclick = function(event) {
         var detailsModal = document.getElementById('quest-details-modal');
@@ -3901,13 +4586,72 @@ function puzzlepath_quests_page() {
 }
 
 /**
+ * Handle medal image upload
+ */
+function puzzlepath_handle_medal_image_upload($file) {
+    // Check for upload errors
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        return [
+            'success' => false,
+            'error' => 'Upload error: ' . $file['error']
+        ];
+    }
+    
+    // Validate file size (4MB max)
+    if ($file['size'] > 4 * 1024 * 1024) {
+        return [
+            'success' => false,
+            'error' => 'File size must be less than 4MB'
+        ];
+    }
+    
+    // Validate file type
+    $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!in_array($file['type'], $allowed_types)) {
+        return [
+            'success' => false,
+            'error' => 'Invalid file type. Only JPG, PNG, GIF, and WebP are allowed.'
+        ];
+    }
+    
+    // Set up upload directory
+    $upload_dir = wp_upload_dir();
+    $puzzlepath_dir = $upload_dir['basedir'] . '/puzzlepath-medals';
+    $puzzlepath_url = $upload_dir['baseurl'] . '/puzzlepath-medals';
+    
+    // Create directory if it doesn't exist
+    if (!file_exists($puzzlepath_dir)) {
+        wp_mkdir_p($puzzlepath_dir);
+    }
+    
+    // Generate unique filename
+    $file_extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+    $filename = 'medal-' . time() . '-' . wp_generate_password(8, false) . '.' . $file_extension;
+    $file_path = $puzzlepath_dir . '/' . $filename;
+    
+    // Move uploaded file
+    if (move_uploaded_file($file['tmp_name'], $file_path)) {
+        return [
+            'success' => true,
+            'url' => $puzzlepath_url . '/' . $filename,
+            'path' => $file_path
+        ];
+    } else {
+        return [
+            'success' => false,
+            'error' => 'Failed to move uploaded file'
+        ];
+    }
+}
+
+/**
  * Quest modals container
  */
 function puzzlepath_quest_modals() {
     ?>
     <!-- Quest Details Modal -->
-    <div id="quest-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
-        <div style="background-color: #fefefe; margin: 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 90vh; position: relative;">
+    <div id="quest-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 50px auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: calc(100vh - 100px); overflow-y: auto; position: relative; min-height: 200px;">
             <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px;" onclick="closeQuestDetails()">&times;</span>
             <div id="quest-details-content" style="margin-top: 10px;">
                 Loading...
@@ -3916,8 +4660,8 @@ function puzzlepath_quest_modals() {
     </div>
     
     <!-- Edit Quest Modal -->
-    <div id="edit-quest-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
-        <div style="background-color: #fefefe; margin: 1% auto 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 95vh; overflow-y: auto; position: relative;">
+    <div id="edit-quest-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 20px auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: calc(100vh - 40px); overflow-y: auto; position: relative; min-height: 200px;">
             <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeEditQuest()">&times;</span>
             <div id="edit-quest-content" style="margin-top: 10px; padding-right: 10px;">
                 Loading...
@@ -3926,8 +4670,8 @@ function puzzlepath_quest_modals() {
     </div>
     
     <!-- Manage Clues Modal -->
-    <div id="manage-clues-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
-        <div style="background-color: #fefefe; margin: 1% auto 2% auto; padding: 20px; border: 1px solid #888; width: 95%; max-width: 900px; border-radius: 5px; max-height: 95vh; overflow-y: auto; position: relative;">
+    <div id="manage-clues-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 20px auto; padding: 20px; border: 1px solid #888; width: 95%; max-width: 900px; border-radius: 5px; max-height: calc(100vh - 40px); overflow-y: auto; position: relative; min-height: 200px;">
             <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeManageClues()">&times;</span>
             <div id="manage-clues-content" style="margin-top: 10px; padding-right: 10px;">
                 Loading...
@@ -3936,8 +4680,8 @@ function puzzlepath_quest_modals() {
     </div>
     
     <!-- Add Quest Modal -->
-    <div id="add-quest-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
-        <div style="background-color: #fefefe; margin: 1% auto 2% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: 95vh; overflow-y: auto; position: relative;">
+    <div id="add-quest-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 20px auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: calc(100vh - 40px); overflow-y: auto; position: relative; min-height: 200px;">
             <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeAddQuest()">&times;</span>
             <div id="add-quest-content" style="margin-top: 10px; padding-right: 10px;">
                 Loading...
