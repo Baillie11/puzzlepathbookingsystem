@@ -34,8 +34,11 @@ jQuery(document).ready(function($) {
             $('#discount-line').hide();
         }
         
-        // Handle free bookings - hide payment fields and update UI
-        if (finalTotal <= 0) {
+        // Handle free bookings - only show when coupon is applied AND total is free
+        // Don't show free booking notice if no event is selected or no coupon applied
+        var shouldShowFreeBooking = (finalTotal <= 0) && couponApplied && ($('#event_id').val() !== '');
+        
+        if (shouldShowFreeBooking) {
             // Hide card elements with multiple selector attempts
             $('#card-element').hide();
             $('#card-element').parent().hide();
@@ -51,15 +54,19 @@ jQuery(document).ready(function($) {
                 $('<div id="free-booking-notice" style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 5px; margin: 15px 0; font-weight: bold; text-align: center;"><strong>🎉 Free Booking!</strong><br/>No payment required - just click to confirm your booking.</div>').insertBefore('#submit-payment');
             }
         } else {
-            // Show card elements for paid bookings
+            // Show card elements for paid bookings (or when no event selected)
             $('#card-element').show();
             $('#card-element').parent().show();
             $('#card-errors').show();
             $('[id*="card"]').show();
             $('.card-container, .payment-section, .stripe-elements').show();
             
-            // Reset submit button
-            $('#submit-payment').text('Book Now');
+            // Reset submit button text based on whether an event is selected
+            if ($('#event_id').val() !== '') {
+                $('#submit-payment').text('Book Now');
+            } else {
+                $('#submit-payment').text('Book Now');
+            }
             
             // Remove free booking notice
             $('#free-booking-notice').remove();

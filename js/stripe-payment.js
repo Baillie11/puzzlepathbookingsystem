@@ -137,12 +137,14 @@ jQuery(document).ready(function ($) {
             return;
         }
         
-        // Check if this is a free booking (total = $0) and bypass Stripe
+        // Check if this is a free booking (total = $0 from applied coupon) and bypass Stripe
         var currentTotal = window.puzzlepathCurrentTotal || 0;
         console.log('PuzzlePath Debug: Current total for payment processing:', currentTotal);
         
-        if (currentTotal <= 0) {
-            console.log('PuzzlePath Debug: Free booking detected, bypassing Stripe');
+        // Only bypass Stripe if total is $0 AND we have a valid event selected
+        // (This prevents bypassing when page initially loads with $0 total)
+        if (currentTotal <= 0 && bookingData.event_id) {
+            console.log('PuzzlePath Debug: Free booking detected (coupon applied), bypassing Stripe');
             handleFreeBooking(bookingData);
             return;
         }
