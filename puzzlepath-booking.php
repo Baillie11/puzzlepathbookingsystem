@@ -424,7 +424,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-stripe-payment',
             plugin_dir_url(__FILE__) . 'js/stripe-payment.js',
             array('jquery', 'stripe-js'),
-            '2.8.2', // Fixed form disappearing bug
+            '2.8.3', // Fixed submit button logic
             true
         );
 

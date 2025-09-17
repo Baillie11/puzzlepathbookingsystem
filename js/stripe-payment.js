@@ -107,7 +107,18 @@ jQuery(document).ready(function ($) {
 
     submitButton.on('click', function(e) {
         e.preventDefault();
-        payWithCard(stripe, card);
+        
+        // Only proceed with payment if user is actually trying to complete booking
+        // Don't trigger payment logic if they're just applying coupons
+        var buttonText = $(this).text();
+        console.log('PuzzlePath Debug: Submit button clicked with text:', buttonText);
+        
+        // Only process booking if button shows booking intent
+        if (buttonText === 'Complete Free Booking' || buttonText === 'Book Now') {
+            payWithCard(stripe, card);
+        } else {
+            console.log('PuzzlePath Debug: Submit button not ready for booking, ignoring click');
+        }
     });
 
     var bookingCode = null;
