@@ -179,22 +179,13 @@ jQuery(document).ready(function ($) {
                 bookingCode = result.bookingCode;
             }
             
-            // Check if this is a free booking
+            // Free bookings should not reach this point - they should be handled by handleFreeBooking()
+            // This is only for paid bookings that go through Stripe
             if (result.free_booking && result.success) {
-                console.log('PuzzlePath Debug: Free booking detected, showing success screen');
-                console.log('PuzzlePath Debug: Booking code:', result.bookingCode);
-                console.log('PuzzlePath Debug: Hiding form and showing success');
-                
-                // Free booking - show success immediately
-                $('#booking-form').hide();
-                $('#payment-success').show();
-                $('#booking-code').text(result.bookingCode);
-                
-                console.log('PuzzlePath Debug: Form hidden:', $('#booking-form').is(':hidden'));
-                console.log('PuzzlePath Debug: Success shown:', $('#payment-success').is(':visible'));
-                console.log('PuzzlePath Debug: Booking code element text:', $('#booking-code').text());
-                
-                return; // Don't process Stripe payment
+                console.error('PuzzlePath Debug: Free booking should not reach main payment handler!');
+                $('#card-errors').text('Unexpected free booking response. Please try again.');
+                submitButton.prop('disabled', false).text('Complete Free Booking');
+                return;
             }
             
             if (result.clientSecret) {
