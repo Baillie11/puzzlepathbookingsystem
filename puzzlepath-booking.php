@@ -416,7 +416,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form',
             plugin_dir_url(__FILE__) . 'js/booking-form.js',
             array('jquery'),
-            '2.5.2',
+            '2.8.0', // Updated for free booking fix
             true
         );
         
@@ -424,7 +424,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-stripe-payment',
             plugin_dir_url(__FILE__) . 'js/stripe-payment.js',
             array('jquery', 'stripe-js'),
-            '2.7.5',
+            '2.8.0', // Updated for free booking fix
             true
         );
 
