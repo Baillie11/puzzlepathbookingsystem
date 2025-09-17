@@ -34,9 +34,23 @@ jQuery(document).ready(function($) {
             $('#discount-line').hide();
         }
         
-        // Handle free bookings - only show when coupon is applied AND total is free
-        // Don't show free booking notice if no event is selected or no coupon applied
-        var shouldShowFreeBooking = (finalTotal <= 0) && couponApplied && ($('#event_id').val() !== '');
+        // CRITICAL: Only show free booking notice when:
+        // 1. An event is selected (basePrice > 0)
+        // 2. A coupon has been successfully applied (couponApplied = true)
+        // 3. The final calculated total is $0 or less (finalTotal <= 0)
+        // 4. NOT when page initially loads with no selections
+        
+        var eventSelected = $('#event_id').val() !== '' && basePrice > 0;
+        var actuallyFreeFromCoupon = couponApplied && finalTotal <= 0;
+        var shouldShowFreeBooking = eventSelected && actuallyFreeFromCoupon;
+        
+        console.log('Free booking check:', {
+            eventSelected: eventSelected,
+            basePrice: basePrice,
+            couponApplied: couponApplied,
+            finalTotal: finalTotal,
+            shouldShowFreeBooking: shouldShowFreeBooking
+        });
         
         if (shouldShowFreeBooking) {
             // Hide card elements with multiple selector attempts
@@ -54,21 +68,17 @@ jQuery(document).ready(function($) {
                 $('<div id="free-booking-notice" style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 5px; margin: 15px 0; font-weight: bold; text-align: center;"><strong>🎉 Free Booking!</strong><br/>No payment required - just click to confirm your booking.</div>').insertBefore('#submit-payment');
             }
         } else {
-            // Show card elements for paid bookings (or when no event selected)
+            // Always show card elements and normal button for non-free bookings
             $('#card-element').show();
             $('#card-element').parent().show();
             $('#card-errors').show();
             $('[id*="card"]').show();
             $('.card-container, .payment-section, .stripe-elements').show();
             
-            // Reset submit button text based on whether an event is selected
-            if ($('#event_id').val() !== '') {
-                $('#submit-payment').text('Book Now');
-            } else {
-                $('#submit-payment').text('Book Now');
-            }
+            // Normal submit button text
+            $('#submit-payment').text('Book Now');
             
-            // Remove free booking notice
+            // Always remove free booking notice when not applicable
             $('#free-booking-notice').remove();
         }
         
@@ -159,6 +169,7 @@ jQuery(document).ready(function($) {
     // Initialize global total variable
     window.puzzlepathCurrentTotal = 0;
     
-    // Initial state
+    // Initial state - should NOT show free booking notice
+    console.log('PuzzlePath: Initial page load, calculating display...');
     calculateAndDisplayTotal();
 });
