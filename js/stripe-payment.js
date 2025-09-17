@@ -240,10 +240,22 @@ jQuery(document).ready(function ($) {
             if (result.success && result.free_booking) {
                 console.log('PuzzlePath Debug: Free booking confirmed, showing success screen');
                 
-                // Hide the booking form and show success
-                $('#booking-form').hide();
-                $('#payment-success').show();
-                $('#booking-code').text(result.bookingCode);
+                // Create a more prominent success message
+                var successHtml = `
+                    <div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
+                        <h2 style="color: #155724; margin-top: 0;">🎉 Booking Confirmed!</h2>
+                        <p style="font-size: 16px; margin: 10px 0;">Thank you for your free booking!</p>
+                        <p style="font-size: 18px; font-weight: bold; margin: 15px 0;">Your booking code is: <span style="background: #fff; padding: 5px 10px; border: 2px dashed #28a745; border-radius: 4px; font-family: monospace;">${result.bookingCode}</span></p>
+                        <p style="font-size: 14px; color: #666; margin: 10px 0;">A confirmation email has been sent to your email address.</p>
+                        <p style="font-size: 14px; color: #666; margin: 10px 0;">You can now access your quest at <a href="https://app.puzzlepath.com.au" target="_blank" style="color: #28a745; text-decoration: none;">app.puzzlepath.com.au</a></p>
+                    </div>
+                `;
+                
+                // Replace the entire booking form with success message
+                $('#puzzlepath-booking-form').html(successHtml);
+                
+                // Scroll to the success message
+                $('#puzzlepath-booking-form')[0].scrollIntoView({ behavior: 'smooth' });
                 
                 console.log('PuzzlePath Debug: Success screen displayed with booking code:', result.bookingCode);
             } else {

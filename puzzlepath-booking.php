@@ -1668,9 +1668,16 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
             // Get HTML template (fallback to default if not set) 
             $template = get_option('puzzlepath_email_template', puzzlepath_get_default_html_template());
             
-            // Get plugin URL for logo
+            // Get plugin URL for logo with fallback
             $plugin_url = plugin_dir_url(__FILE__);
             $logo_url = $plugin_url . 'images/puzzlepath-logo.png';
+            
+            // Check if logo exists, use fallback if not
+            $logo_path = plugin_dir_path(__FILE__) . 'images/puzzlepath-logo.png';
+            if (!file_exists($logo_path)) {
+                $logo_url = 'https://via.placeholder.com/150x60/3F51B5/ffffff?text=PuzzlePath';
+                error_log('PuzzlePath Email: Logo not found, using placeholder: ' . $logo_path);
+            }
             
             // Format event date
             $formatted_date = $event && $event->event_date ? date('F j, Y \a\t g:i A', strtotime($event->event_date)) : 'TBD';
@@ -1795,7 +1802,19 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                     "SELECT * FROM {$wpdb->prefix}pp_bookings WHERE id = %d",
                     $booking_id
                 ));
-                $this->send_confirmation_email($booking, $booking_code);
+                
+                // Always log email attempts for free bookings (debugging)
+                error_log('PuzzlePath Free Booking: Attempting to send confirmation email to ' . $booking->customer_email);
+                error_log('PuzzlePath Free Booking: Booking code: ' . $booking_code);
+                
+                $email_result = $this->send_confirmation_email($booking, $booking_code);
+                
+                // Log email result
+                if ($email_result) {
+                    error_log('PuzzlePath Free Booking: Confirmation email sent successfully');
+                } else {
+                    error_log('PuzzlePath Free Booking: Confirmation email FAILED to send');
+                }
 
                 // Return success response with special flag for free booking
                 return new WP_REST_Response([

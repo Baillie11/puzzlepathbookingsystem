@@ -36,21 +36,27 @@ jQuery(document).ready(function($) {
         
         // Handle free bookings - hide payment fields and update UI
         if (finalTotal <= 0) {
-            // Hide card elements
-            $('#card-element').closest('.card-container, .payment-section').slideUp(300);
+            // Hide card elements with multiple selector attempts
+            $('#card-element').hide();
+            $('#card-element').parent().hide();
             $('#card-errors').hide();
+            $('[id*="card"]').not('#card-errors').hide(); // Hide any element with 'card' in ID
+            $('.card-container, .payment-section, .stripe-elements').hide();
             
             // Update submit button
             $('#submit-payment').text('Complete Free Booking');
             
             // Add free booking notice
             if (!$('#free-booking-notice').length) {
-                $('<div id="free-booking-notice" style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 10px; border-radius: 5px; margin: 10px 0;"><strong>🎉 Free Booking!</strong> No payment required - just click to confirm your booking.</div>').insertBefore('#submit-payment');
+                $('<div id="free-booking-notice" style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 5px; margin: 15px 0; font-weight: bold; text-align: center;"><strong>🎉 Free Booking!</strong><br/>No payment required - just click to confirm your booking.</div>').insertBefore('#submit-payment');
             }
         } else {
             // Show card elements for paid bookings
-            $('#card-element').closest('.card-container, .payment-section').slideDown(300);
+            $('#card-element').show();
+            $('#card-element').parent().show();
             $('#card-errors').show();
+            $('[id*="card"]').show();
+            $('.card-container, .payment-section, .stripe-elements').show();
             
             // Reset submit button
             $('#submit-payment').text('Book Now');
