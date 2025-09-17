@@ -133,7 +133,17 @@ jQuery(document).ready(function ($) {
         if (!bookingData.event_id || !bookingData.name || !bookingData.email) {
             console.error('PuzzlePath Debug: Missing required fields');
             alert('Please fill in all required fields');
-            submitButton.prop('disabled', false).text('Book Now');
+            submitButton.prop('disabled', false).text('Complete Free Booking');
+            return;
+        }
+        
+        // Check if this is a free booking (total = $0) and bypass Stripe
+        var currentTotal = window.puzzlepathCurrentTotal || 0;
+        console.log('PuzzlePath Debug: Current total for payment processing:', currentTotal);
+        
+        if (currentTotal <= 0) {
+            console.log('PuzzlePath Debug: Free booking detected, bypassing Stripe');
+            handleFreeBooking(bookingData);
             return;
         }
         
@@ -190,16 +200,66 @@ jQuery(document).ready(function ($) {
                 confirmPayment(result.clientSecret, cardElement, bookingData.name, bookingData.email);
             } else {
                 $('#card-errors').text(result.message || (result.data && result.data.message) || 'There was an error setting up the payment.');
-                submitButton.prop('disabled', false).text('Book Now');
+                var buttonText = (window.puzzlepathCurrentTotal <= 0) ? 'Complete Free Booking' : 'Book Now';
+                submitButton.prop('disabled', false).text(buttonText);
             }
         })
         .catch(function(error) {
             console.error('Error:', error);
             $('#card-errors').text('Could not connect to payment server.');
-            submitButton.prop('disabled', false).text('Book Now');
+            var buttonText = (window.puzzlepathCurrentTotal <= 0) ? 'Complete Free Booking' : 'Book Now';
+            submitButton.prop('disabled', false).text(buttonText);
         });
     };
 
+    var handleFreeBooking = function(bookingData) {
+        console.log('PuzzlePath Debug: Processing free booking directly');
+        
+        // Make request directly to payment endpoint (backend will detect zero total)
+        fetch(puzzlepath_data.rest_url + 'payment/create-intent', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-WP-Nonce': puzzlepath_data.rest_nonce
+            },
+            body: JSON.stringify(bookingData),
+        })
+        .then(function(response) {
+            console.log('PuzzlePath Debug: Free booking response received, status:', response.status);
+            
+            if (!response.ok) {
+                console.error('PuzzlePath Debug: HTTP error', response.status, response.statusText);
+                throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+            }
+            
+            return response.json();
+        })
+        .then(function(result) {
+            console.log('PuzzlePath Debug: Free booking response data:', result);
+            
+            if (result.success && result.free_booking) {
+                console.log('PuzzlePath Debug: Free booking confirmed, showing success screen');
+                
+                // Hide the booking form and show success
+                $('#booking-form').hide();
+                $('#payment-success').show();
+                $('#booking-code').text(result.bookingCode);
+                
+                console.log('PuzzlePath Debug: Success screen displayed with booking code:', result.bookingCode);
+            } else {
+                // Handle error response
+                var errorMessage = result.message || result.data?.message || 'There was an error processing your free booking.';
+                $('#card-errors').text(errorMessage);
+                submitButton.prop('disabled', false).text('Complete Free Booking');
+            }
+        })
+        .catch(function(error) {
+            console.error('PuzzlePath Debug: Free booking error:', error);
+            $('#card-errors').text('Could not process your booking. Please try again.');
+            submitButton.prop('disabled', false).text('Complete Free Booking');
+        });
+    };
+    
     var confirmPayment = function(clientSecret, cardElement, customerName, customerEmail) {
         stripe.confirmCardPayment(clientSecret, {
             payment_method: {

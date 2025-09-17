@@ -5,6 +5,8 @@ jQuery(document).ready(function($) {
     var couponApplied = false;
 
     function calculateAndDisplayTotal() {
+        var finalTotal = 0;
+        
         if (basePrice > 0) {
             var subtotal = basePrice * ticketCount;
             var discountAmount = 0;
@@ -17,7 +19,7 @@ jQuery(document).ready(function($) {
                 $('#discount-line').hide();
             }
 
-            var finalTotal = subtotal - discountAmount;
+            finalTotal = subtotal - discountAmount;
 
             $('#subtotal').text(subtotal.toFixed(2));
             $('#total').text(finalTotal.toFixed(2));
@@ -31,6 +33,34 @@ jQuery(document).ready(function($) {
             $('#total').text('0.00');
             $('#discount-line').hide();
         }
+        
+        // Handle free bookings - hide payment fields and update UI
+        if (finalTotal <= 0) {
+            // Hide card elements
+            $('#card-element').closest('.card-container, .payment-section').slideUp(300);
+            $('#card-errors').hide();
+            
+            // Update submit button
+            $('#submit-payment').text('Complete Free Booking');
+            
+            // Add free booking notice
+            if (!$('#free-booking-notice').length) {
+                $('<div id="free-booking-notice" style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 10px; border-radius: 5px; margin: 10px 0;"><strong>🎉 Free Booking!</strong> No payment required - just click to confirm your booking.</div>').insertBefore('#submit-payment');
+            }
+        } else {
+            // Show card elements for paid bookings
+            $('#card-element').closest('.card-container, .payment-section').slideDown(300);
+            $('#card-errors').show();
+            
+            // Reset submit button
+            $('#submit-payment').text('Book Now');
+            
+            // Remove free booking notice
+            $('#free-booking-notice').remove();
+        }
+        
+        // Make the final total globally accessible for stripe-payment.js
+        window.puzzlepathCurrentTotal = finalTotal;
     }
 
     // When an event is selected
@@ -113,6 +143,9 @@ jQuery(document).ready(function($) {
         });
     });
 
+    // Initialize global total variable
+    window.puzzlepathCurrentTotal = 0;
+    
     // Initial state
     calculateAndDisplayTotal();
-}); 
+});
