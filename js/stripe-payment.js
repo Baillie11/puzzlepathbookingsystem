@@ -154,6 +154,7 @@ jQuery(document).ready(function($) {
             return response.json();
         })
         .then(function(result) {
+            console.log('PuzzlePath Debug: Free booking response:', result);
             if (result.success && result.free_booking) {
                 // Show success message but keep form visible
                 var successHtml = '<div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">' +
@@ -179,7 +180,8 @@ jQuery(document).ready(function($) {
             }
         })
         .catch(function(error) {
-            $('#card-errors').text('Could not process your booking. Please try again.');
+            console.error('PuzzlePath Debug: Free booking error:', error);
+            $('#card-errors').text('Could not process your booking. Please try again. Error: ' + error.message);
             submitButton.prop('disabled', false).text('Book Now');
         });
     };
