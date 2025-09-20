@@ -97,7 +97,10 @@ jQuery(document).ready(function($) {
         
         // Check if this is a free booking (total = $0) - process as free booking
         var currentTotal = window.puzzlepathCurrentTotal || 0;
+        console.log('PuzzlePath Debug: Current total check:', currentTotal, 'Event ID:', bookingData.event_id);
+        
         if (currentTotal <= 0 && bookingData.event_id) {
+            console.log('PuzzlePath Debug: Detected free booking, processing...');
             // Process free booking - create booking, send email, etc. (skip Stripe)
             processFreeBooking(bookingData);
             return;
@@ -155,11 +158,20 @@ jQuery(document).ready(function($) {
         })
         .then(function(result) {
             console.log('PuzzlePath Debug: Free booking response:', result);
+            console.log('PuzzlePath Debug: Current total was:', window.puzzlepathCurrentTotal);
+            console.log('PuzzlePath Debug: Processing free booking redirect...');
+            
             if (result.success && result.free_booking) {
                 // Redirect to confirmation page with booking code
                 var confirmationUrl = window.location.origin + '/booking-confirmation/?booking_code=' + encodeURIComponent(result.bookingCode) + '&event_id=' + encodeURIComponent(bookingData.event_id);
-                window.location.href = confirmationUrl;
+                console.log('PuzzlePath Debug: Redirecting to:', confirmationUrl);
+                
+                // Add a slight delay to ensure the console log is visible
+                setTimeout(function() {
+                    window.location.href = confirmationUrl;
+                }, 500);
             } else {
+                console.log('PuzzlePath Debug: Free booking failed:', result.message);
                 $('#card-errors').text(result.message || 'There was an error processing your free booking.');
                 submitButton.prop('disabled', false).text('Book Now');
             }

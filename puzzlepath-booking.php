@@ -384,19 +384,22 @@ function puzzlepath_enqueue_scripts() {
     // Check multiple conditions for when to load scripts
     $should_load_scripts = false;
     
-    // Condition 1: Post content contains shortcode
-    if ($post && has_shortcode($post->post_content, 'puzzlepath_booking_form')) {
+    // Condition 1: Post content contains booking shortcodes
+    if ($post && (has_shortcode($post->post_content, 'puzzlepath_booking_form') || 
+                  has_shortcode($post->post_content, 'puzzlepath_booking_confirmation'))) {
         $should_load_scripts = true;
     }
     
-    // Condition 2: Current page URL suggests it's a booking test page
+    // Condition 2: Current page URL suggests it's a booking related page
     if (strpos($_SERVER['REQUEST_URI'], 'booking') !== false || 
-        strpos($_SERVER['REQUEST_URI'], 'simple-booking-test') !== false) {
+        strpos($_SERVER['REQUEST_URI'], 'simple-booking-test') !== false ||
+        strpos($_SERVER['REQUEST_URI'], 'confirmation') !== false) {
         $should_load_scripts = true;
     }
     
     // Condition 3: Query parameter indicates shortcode will be used
     if (isset($_GET['show_booking_form']) || 
+        isset($_GET['booking_code']) || // Confirmation page with booking code
         (isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], 'puzzlepath') !== false)) {
         $should_load_scripts = true;
     }
@@ -416,7 +419,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form',
             plugin_dir_url(__FILE__) . 'js/booking-form.js',
             array('jquery'),
-            '2.9.0', // Fixed 100% coupon auto-booking issue
+            '3.0.0', // Added confirmation page redirect
             true
         );
         
@@ -424,7 +427,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-stripe-payment',
             plugin_dir_url(__FILE__) . 'js/stripe-payment.js',
             array('jquery', 'stripe-js'),
-            '2.9.0', // Fixed 100% coupon auto-booking issue
+            '3.0.0', // Added confirmation page redirect with debugging
             true
         );
 
