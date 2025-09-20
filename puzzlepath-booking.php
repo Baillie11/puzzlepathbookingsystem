@@ -1435,6 +1435,11 @@ function puzzlepath_settings_page() {
     <?php
 }
 
+// ========================= INCLUDES =========================
+
+// Load settings functions
+require_once plugin_dir_path(__FILE__) . 'includes/settings.php';
+
 // ========================= STRIPE INTEGRATION =========================
 
 // Check if Stripe library is available (only load if composer installed)
