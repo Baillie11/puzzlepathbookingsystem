@@ -892,6 +892,35 @@ function puzzlepath_booking_confirmation_test($atts) {
 }
 add_shortcode('puzzlepath_confirmation_test', 'puzzlepath_booking_confirmation_test');
 
+/**
+ * Force shortcode processing in content - ensures shortcodes work even if theme doesn't support them
+ */
+function puzzlepath_force_shortcode_processing($content) {
+    // Only process on pages that might contain our shortcodes
+    if (is_page() && (strpos($content, 'puzzlepath_booking_confirmation') !== false || 
+                     strpos($content, 'puzzlepath_confirmation_test') !== false)) {
+        error_log('PuzzlePath Debug: Forcing shortcode processing on page content');
+        $content = do_shortcode($content);
+    }
+    return $content;
+}
+add_filter('the_content', 'puzzlepath_force_shortcode_processing', 20);
+
+/**
+ * Debug function to check if our shortcodes are registered
+ */
+function puzzlepath_debug_shortcodes() {
+    global $shortcode_tags;
+    if (isset($_GET['booking_code']) && is_page()) {
+        error_log('PuzzlePath Debug: Plugin loaded, checking shortcodes...');
+        error_log('PuzzlePath Debug: Confirmation shortcode registered: ' . (isset($shortcode_tags['puzzlepath_booking_confirmation']) ? 'YES' : 'NO'));
+        error_log('PuzzlePath Debug: Test shortcode registered: ' . (isset($shortcode_tags['puzzlepath_confirmation_test']) ? 'YES' : 'NO'));
+        error_log('PuzzlePath Debug: Current page ID: ' . get_the_ID());
+        error_log('PuzzlePath Debug: Is page: ' . (is_page() ? 'YES' : 'NO'));
+    }
+}
+add_action('wp', 'puzzlepath_debug_shortcodes');
+
 // ========================= EVENTS MANAGEMENT =========================
 
 /**
