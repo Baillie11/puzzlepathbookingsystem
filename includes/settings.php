@@ -123,10 +123,10 @@ function puzzlepath_get_default_html_template() {
                 <table role="presentation" style="width: 100%; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                     <!-- Header with Logo -->
                     <tr>
-                        <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #3F51B5 0%, #5C6BC0 100%); border-radius: 8px 8px 0 0;">
+                        <td style="padding: 40px 40px 20px; text-align: center; background-color: #3F51B5; background: linear-gradient(135deg, #3F51B5 0%, #5C6BC0 100%); border-radius: 8px 8px 0 0;">
                             <img src="{logo_url}" alt="PuzzlePath Logo" style="width: 150px; height: auto; display: block; margin: 0 auto;" />
-                            <h1 style="color: #ffffff; font-size: 28px; font-weight: 600; margin: 20px 0 10px; line-height: 1.2;">Booking Confirmed!</h1>
-                            <p style="color: #E8EAF6; font-size: 16px; margin: 0; opacity: 0.9;">Your adventure awaits</p>
+                            <h1 style="color: #ffffff !important; font-size: 28px; font-weight: 600; margin: 20px 0 10px; line-height: 1.2; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">Booking Confirmed!</h1>
+                            <p style="color: #ffffff !important; font-size: 16px; margin: 0; opacity: 0.95; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">Your adventure awaits</p>
                         </td>
                     </tr>
                     
@@ -164,7 +164,7 @@ function puzzlepath_get_default_html_template() {
                             <!-- Call to Action -->
                             <div style="text-align: center; margin: 35px 0;">
                                 <p style="font-size: 18px; color: #333333; margin: 0 0 20px; font-weight: 600;">Ready to start your quest?</p>
-                                <a href="{app_url}" style="display: inline-block; background: linear-gradient(135deg, #3F51B5 0%, #5C6BC0 100%); color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 50px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 12px rgba(63, 81, 181, 0.3); transition: all 0.3s ease;" target="_blank">
+                                <a href="{app_url}" style="display: inline-block; background-color: #3F51B5; background: linear-gradient(135deg, #3F51B5 0%, #5C6BC0 100%); color: #ffffff !important; text-decoration: none; padding: 16px 32px; border-radius: 50px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 12px rgba(63, 81, 181, 0.3); border: 2px solid #3F51B5; text-shadow: 0 1px 2px rgba(0,0,0,0.1);" target="_blank">
                                     🚀 Open Your Quest
                                 </a>
                                 <p style="font-size: 14px; color: #888888; margin: 15px 0 0; line-height: 1.4;">Click the button above or visit:<br/><a href="{app_url}" style="color: #3F51B5; text-decoration: none;">{app_url}</a></p>
