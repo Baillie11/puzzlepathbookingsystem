@@ -95,12 +95,11 @@ jQuery(document).ready(function($) {
             return;
         }
         
-        // Check if this is a free booking (total = $0) - do nothing
+        // Check if this is a free booking (total = $0) - process as free booking
         var currentTotal = window.puzzlepathCurrentTotal || 0;
         if (currentTotal <= 0 && bookingData.event_id) {
-            // For 100% discount, just show message and return - don't process booking
-            $('#card-errors').html('<div style="color: #155724; background: #d4edda; border: 1px solid #c3e6cb; padding: 10px; border-radius: 4px;">Total is $0.00. No payment required.</div>');
-            submitButton.prop('disabled', false).text('Book Now');
+            // Process free booking - create booking, send email, etc. (skip Stripe)
+            processFreeBooking(bookingData);
             return;
         }
 
@@ -134,6 +133,53 @@ jQuery(document).ready(function($) {
         })
         .catch(function(error) {
             $('#card-errors').text('Could not connect to payment server.');
+            submitButton.prop('disabled', false).text('Book Now');
+        });
+    };
+    
+    var processFreeBooking = function(bookingData) {
+        // Process free bookings - create database entry, send email, etc.
+        fetch(puzzlepath_data.rest_url + 'payment/create-intent', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-WP-Nonce': puzzlepath_data.rest_nonce
+            },
+            body: JSON.stringify(bookingData),
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(function(result) {
+            if (result.success && result.free_booking) {
+                // Show success message but keep form visible
+                var successHtml = '<div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">' +
+                    '<h2 style="color: #155724; margin-top: 0;">🎉 Booking Confirmed!</h2>' +
+                    '<p style="font-size: 16px; margin: 10px 0;">Thank you for your free booking!</p>' +
+                    '<p style="font-size: 18px; font-weight: bold; margin: 15px 0;">Your booking code is: <span style="background: #fff; padding: 5px 10px; border: 2px dashed #28a745; border-radius: 4px; font-family: monospace;">' + result.bookingCode + '</span></p>' +
+                    '<p style="font-size: 14px; color: #666; margin: 10px 0;">A confirmation email has been sent to your email address.</p>' +
+                    '<p style="font-size: 14px; color: #666; margin: 10px 0;">You can now access your quest at <a href="https://app.puzzlepath.com.au" target="_blank" style="color: #28a745; text-decoration: none;">app.puzzlepath.com.au</a></p>' +
+                    '</div>';
+                
+                // Show success message above the form instead of replacing it
+                $('#card-errors').html(successHtml);
+                
+                // Disable the form to prevent double bookings
+                $('#booking-form input, #booking-form select, #booking-form button').prop('disabled', true);
+                submitButton.text('Booking Complete');
+                
+                // Scroll to success message
+                $('#card-errors')[0].scrollIntoView({ behavior: 'smooth' });
+            } else {
+                $('#card-errors').text(result.message || 'There was an error processing your free booking.');
+                submitButton.prop('disabled', false).text('Book Now');
+            }
+        })
+        .catch(function(error) {
+            $('#card-errors').text('Could not process your booking. Please try again.');
             submitButton.prop('disabled', false).text('Book Now');
         });
     };
