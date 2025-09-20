@@ -1602,6 +1602,9 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
             // Format event date
             $formatted_date = $event && $event->event_date ? date('F j, Y \a\t g:i A', strtotime($event->event_date)) : 'TBD';
             
+            // Create app URL with booking code pre-filled
+            $app_url_with_booking = 'https://app.puzzlepath.com.au?booking=' . urlencode($booking_code);
+            
             // Replace placeholders
             $html_message = str_replace(
                 ['{name}', '{event_title}', '{event_date}', '{price}', '{booking_code}', '{logo_url}', '{app_url}'],
@@ -1612,7 +1615,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                     '$' . number_format($booking->total_price, 2), 
                     $booking_code,
                     $logo_url,
-                    'https://app.puzzlepath.com.au'
+                    $app_url_with_booking
                 ],
                 $template
             );
