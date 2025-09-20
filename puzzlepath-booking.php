@@ -898,7 +898,9 @@ add_shortcode('puzzlepath_confirmation_test', 'puzzlepath_booking_confirmation_t
 function puzzlepath_force_shortcode_processing($content) {
     // Only process on pages that might contain our shortcodes
     if (is_page() && (strpos($content, 'puzzlepath_booking_confirmation') !== false || 
-                     strpos($content, 'puzzlepath_confirmation_test') !== false)) {
+                     strpos($content, 'puzzlepath_confirmation_test') !== false || 
+                     strpos($content, '[puzzlepath_booking_confirmation]') !== false || 
+                     strpos($content, '[puzzlepath_confirmation_test]') !== false)) {
         error_log('PuzzlePath Debug: Forcing shortcode processing on page content');
         $content = do_shortcode($content);
     }
