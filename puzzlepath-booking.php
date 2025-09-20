@@ -598,13 +598,19 @@ add_shortcode('puzzlepath_booking_form', 'puzzlepath_booking_form_shortcode');
  * The confirmation page shortcode for displaying booking confirmation details.
  */
 function puzzlepath_booking_confirmation_shortcode($atts) {
-    // Get booking code from URL parameters
-    $booking_code = isset($_GET['booking_code']) ? sanitize_text_field($_GET['booking_code']) : '';
-    $event_id = isset($_GET['event_id']) ? intval($_GET['event_id']) : 0;
+    error_log('PuzzlePath Debug: Confirmation shortcode called');
     
-    if (empty($booking_code)) {
-        return '<div class="puzzlepath-error"><p>No booking code provided. Please check your confirmation email for the correct link.</p></div>';
-    }
+    try {
+        // Get booking code from URL parameters
+        $booking_code = isset($_GET['booking_code']) ? sanitize_text_field($_GET['booking_code']) : '';
+        $event_id = isset($_GET['event_id']) ? intval($_GET['event_id']) : 0;
+        
+        error_log('PuzzlePath Debug: Booking code: ' . $booking_code . ', Event ID: ' . $event_id);
+        
+        if (empty($booking_code)) {
+            error_log('PuzzlePath Debug: No booking code provided');
+            return '<div class="puzzlepath-error"><p>No booking code provided. Please check your confirmation email for the correct link.</p></div>';
+        }
     
     global $wpdb;
     
@@ -870,8 +876,21 @@ function puzzlepath_booking_confirmation_shortcode($atts) {
     </style>
     <?php
     return ob_get_clean();
+    
+    } catch (Exception $e) {
+        error_log('PuzzlePath Debug: Confirmation shortcode error: ' . $e->getMessage());
+        return '<div class="puzzlepath-error"><p>Error loading confirmation page. Please try again or contact support.</p></div>';
+    }
 }
 add_shortcode('puzzlepath_booking_confirmation', 'puzzlepath_booking_confirmation_shortcode');
+
+/**
+ * Simple test version of the confirmation shortcode to debug
+ */
+function puzzlepath_booking_confirmation_test($atts) {
+    return '<div style="background: red; color: white; padding: 20px;">TEST: Shortcode is working! Booking code from URL: ' . (isset($_GET['booking_code']) ? sanitize_text_field($_GET['booking_code']) : 'Not found') . '</div>';
+}
+add_shortcode('puzzlepath_confirmation_test', 'puzzlepath_booking_confirmation_test');
 
 // ========================= EVENTS MANAGEMENT =========================
 
