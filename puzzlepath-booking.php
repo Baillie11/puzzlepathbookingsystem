@@ -591,6 +591,285 @@ function puzzlepath_booking_form_shortcode($atts) {
 }
 add_shortcode('puzzlepath_booking_form', 'puzzlepath_booking_form_shortcode');
 
+/**
+ * The confirmation page shortcode for displaying booking confirmation details.
+ */
+function puzzlepath_booking_confirmation_shortcode($atts) {
+    // Get booking code from URL parameters
+    $booking_code = isset($_GET['booking_code']) ? sanitize_text_field($_GET['booking_code']) : '';
+    $event_id = isset($_GET['event_id']) ? intval($_GET['event_id']) : 0;
+    
+    if (empty($booking_code)) {
+        return '<div class="puzzlepath-error"><p>No booking code provided. Please check your confirmation email for the correct link.</p></div>';
+    }
+    
+    global $wpdb;
+    
+    // Get booking details
+    $booking = $wpdb->get_row($wpdb->prepare(
+        "SELECT b.*, e.title as event_title, e.location, e.event_date 
+         FROM {$wpdb->prefix}pp_bookings b 
+         LEFT JOIN {$wpdb->prefix}pp_events e ON b.event_id = e.id 
+         WHERE b.booking_code = %s",
+        $booking_code
+    ));
+    
+    if (!$booking) {
+        return '<div class="puzzlepath-error"><p>Booking not found. Please check your booking code and try again.</p></div>';
+    }
+    
+    // Create app URL with booking code pre-filled
+    $app_url_with_booking = 'https://app.puzzlepath.com.au?booking=' . urlencode($booking_code);
+    
+    // Format event date
+    $formatted_date = $booking->event_date ? date('F j, Y \a\t g:i A', strtotime($booking->event_date)) : 'TBD';
+    
+    ob_start();
+    ?>
+    <div id="puzzlepath-confirmation">
+        <div class="confirmation-header">
+            <h1>🎉 Booking Confirmed!</h1>
+            <p class="subtitle">Thank you for your booking! Your adventure awaits.</p>
+        </div>
+        
+        <div class="booking-details-card">
+            <h2>📋 Booking Details</h2>
+            <div class="details-grid">
+                <div class="detail-row">
+                    <span class="label">Event:</span>
+                    <span class="value"><?php echo esc_html($booking->event_title); ?></span>
+                </div>
+                <?php if ($booking->location): ?>
+                <div class="detail-row">
+                    <span class="label">Location:</span>
+                    <span class="value"><?php echo esc_html($booking->location); ?></span>
+                </div>
+                <?php endif; ?>
+                <div class="detail-row">
+                    <span class="label">Date & Time:</span>
+                    <span class="value"><?php echo esc_html($formatted_date); ?></span>
+                </div>
+                <div class="detail-row">
+                    <span class="label">Tickets:</span>
+                    <span class="value"><?php echo esc_html($booking->tickets); ?></span>
+                </div>
+                <div class="detail-row">
+                    <span class="label">Total Paid:</span>
+                    <span class="value">$<?php echo number_format($booking->total_price, 2); ?></span>
+                </div>
+                <div class="detail-row highlight">
+                    <span class="label">Booking Code:</span>
+                    <span class="value booking-code"><?php echo esc_html($booking->booking_code); ?></span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="action-section">
+            <h3>Ready to start your quest?</h3>
+            <a href="<?php echo esc_url($app_url_with_booking); ?>" class="start-quest-btn" target="_blank">
+                🚀 Open Your Quest
+            </a>
+            <p class="app-info">Click the button above or visit: <a href="<?php echo esc_url($app_url_with_booking); ?>" target="_blank">app.puzzlepath.com.au</a></p>
+        </div>
+        
+        <div class="important-note">
+            <p>💡 <strong>Important:</strong> Please save your booking code <strong><?php echo esc_html($booking->booking_code); ?></strong> - you'll need it to access your quest!</p>
+        </div>
+        
+        <div class="email-note">
+            <p>A confirmation email has been sent to <strong><?php echo esc_html($booking->customer_email); ?></strong></p>
+        </div>
+    </div>
+    
+    <style>
+    #puzzlepath-confirmation {
+        max-width: 600px;
+        margin: 40px auto;
+        padding: 20px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    }
+    
+    .confirmation-header {
+        text-align: center;
+        margin-bottom: 40px;
+    }
+    
+    .confirmation-header h1 {
+        color: #3F51B5;
+        font-size: 2.5em;
+        margin-bottom: 10px;
+    }
+    
+    .confirmation-header .subtitle {
+        font-size: 1.2em;
+        color: #666;
+        margin: 0;
+    }
+    
+    .booking-details-card {
+        background: #f8f9ff;
+        border: 1px solid #e0e3ff;
+        border-radius: 12px;
+        padding: 30px;
+        margin-bottom: 30px;
+    }
+    
+    .booking-details-card h2 {
+        color: #3F51B5;
+        font-size: 1.5em;
+        margin-top: 0;
+        margin-bottom: 20px;
+    }
+    
+    .details-grid {
+        display: grid;
+        gap: 15px;
+    }
+    
+    .detail-row {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+    }
+    
+    .detail-row:last-child {
+        border-bottom: none;
+    }
+    
+    .detail-row.highlight {
+        background: rgba(63, 81, 181, 0.1);
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #3F51B5;
+        margin-top: 10px;
+    }
+    
+    .detail-row .label {
+        font-weight: 600;
+        color: #666;
+    }
+    
+    .detail-row .value {
+        color: #333;
+    }
+    
+    .booking-code {
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        font-size: 1.1em;
+        color: #3F51B5 !important;
+    }
+    
+    .action-section {
+        text-align: center;
+        margin: 40px 0;
+    }
+    
+    .action-section h3 {
+        color: #333;
+        font-size: 1.3em;
+        margin-bottom: 20px;
+    }
+    
+    .start-quest-btn {
+        display: inline-block;
+        background: linear-gradient(135deg, #3F51B5 0%, #5C6BC0 100%);
+        color: white !important;
+        text-decoration: none;
+        padding: 16px 32px;
+        border-radius: 50px;
+        font-size: 1.1em;
+        font-weight: 600;
+        box-shadow: 0 4px 12px rgba(63, 81, 181, 0.3);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .start-quest-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(63, 81, 181, 0.4);
+        text-decoration: none;
+        color: white !important;
+    }
+    
+    .app-info {
+        margin-top: 15px;
+        color: #666;
+        font-size: 0.9em;
+    }
+    
+    .app-info a {
+        color: #3F51B5;
+        text-decoration: none;
+    }
+    
+    .important-note {
+        background: #fff3cd;
+        border: 1px solid #ffeaa7;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 30px 0;
+    }
+    
+    .important-note p {
+        margin: 0;
+        color: #856404;
+        line-height: 1.5;
+    }
+    
+    .email-note {
+        text-align: center;
+        padding: 20px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        margin-top: 20px;
+    }
+    
+    .email-note p {
+        margin: 0;
+        color: #6c757d;
+    }
+    
+    .puzzlepath-error {
+        max-width: 600px;
+        margin: 40px auto;
+        padding: 20px;
+        background: #f8d7da;
+        border: 1px solid #f5c6cb;
+        border-radius: 8px;
+        color: #721c24;
+        text-align: center;
+    }
+    
+    @media (max-width: 768px) {
+        #puzzlepath-confirmation {
+            margin: 20px auto;
+            padding: 15px;
+        }
+        
+        .confirmation-header h1 {
+            font-size: 2em;
+        }
+        
+        .booking-details-card {
+            padding: 20px;
+        }
+        
+        .detail-row {
+            grid-template-columns: 1fr;
+            gap: 5px;
+        }
+        
+        .detail-row .label {
+            font-size: 0.9em;
+        }
+    }
+    </style>
+    <?php
+    return ob_get_clean();
+}
+add_shortcode('puzzlepath_booking_confirmation', 'puzzlepath_booking_confirmation_shortcode');
+
 // ========================= EVENTS MANAGEMENT =========================
 
 /**
