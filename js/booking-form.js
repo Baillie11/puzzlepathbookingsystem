@@ -34,53 +34,8 @@ jQuery(document).ready(function($) {
             $('#discount-line').hide();
         }
         
-        // CRITICAL: Only show free booking notice when:
-        // 1. An event is selected (basePrice > 0)
-        // 2. A coupon has been successfully applied (couponApplied = true)
-        // 3. The final calculated total is $0 or less (finalTotal <= 0)
-        // 4. NOT when page initially loads with no selections
-        
-        var eventSelected = $('#event_id').val() !== '' && basePrice > 0;
-        var actuallyFreeFromCoupon = couponApplied && finalTotal <= 0;
-        var shouldShowFreeBooking = eventSelected && actuallyFreeFromCoupon;
-        
-        console.log('Free booking check:', {
-            eventSelected: eventSelected,
-            basePrice: basePrice,
-            couponApplied: couponApplied,
-            finalTotal: finalTotal,
-            shouldShowFreeBooking: shouldShowFreeBooking
-        });
-        
-        if (shouldShowFreeBooking) {
-            // Hide card elements with multiple selector attempts
-            $('#card-element').hide();
-            $('#card-element').parent().hide();
-            $('#card-errors').hide();
-            $('[id*="card"]').not('#card-errors').hide(); // Hide any element with 'card' in ID
-            $('.card-container, .payment-section, .stripe-elements').hide();
-            
-            // Update submit button
-            $('#submit-payment').text('Complete Free Booking');
-            
-            // Add free booking notice
-            if (!$('#free-booking-notice').length) {
-                $('<div id="free-booking-notice" style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 5px; margin: 15px 0; font-weight: bold; text-align: center;"><strong>🎉 Free Booking!</strong><br/>No payment required - just click to confirm your booking.</div>').insertBefore('#submit-payment');
-            }
-        } else {
-            // Always show card elements and normal button for non-free bookings
-            $('#card-element').show();
-            $('#card-element').parent().show();
-            $('#card-errors').show();
-            $('[id*="card"]').show();
-            $('.card-container, .payment-section, .stripe-elements').show();
-            
-            // Normal submit button text
-            $('#submit-payment').text('Book Now');
-            
-            // Always remove free booking notice when not applicable
-            $('#free-booking-notice').remove();
-        }
+        // Simple logic: Just track the total for payment processing
+        // No special UI changes or messages - keep it simple
         
         // Make the final total globally accessible for stripe-payment.js
         window.puzzlepathCurrentTotal = finalTotal;
@@ -169,7 +124,6 @@ jQuery(document).ready(function($) {
     // Initialize global total variable
     window.puzzlepathCurrentTotal = 0;
     
-    // Initial state - should NOT show free booking notice
-    console.log('PuzzlePath: Initial page load, calculating display...');
+    // Initial state
     calculateAndDisplayTotal();
 });

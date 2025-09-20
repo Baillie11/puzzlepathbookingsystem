@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath with unified app integration.
- * Version: 2.7.4
+ * Version: 2.8.3
  * Author: Andrew Baillie
  */
 
@@ -189,7 +189,7 @@ function puzzlepath_update_db_check() {
         // Update payment statuses for existing bookings
         puzzlepath_update_payment_statuses();
     }
-}   
+}
 add_action('plugins_loaded', 'puzzlepath_update_db_check');
 
 /**
@@ -416,7 +416,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form',
             plugin_dir_url(__FILE__) . 'js/booking-form.js',
             array('jquery'),
-            '2.8.2', // Fixed form disappearing bug
+            '2.9.0', // Fixed 100% coupon auto-booking issue
             true
         );
         
@@ -424,7 +424,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-stripe-payment',
             plugin_dir_url(__FILE__) . 'js/stripe-payment.js',
             array('jquery', 'stripe-js'),
-            '2.8.3', // Fixed submit button logic
+            '2.9.0', // Fixed 100% coupon auto-booking issue
             true
         );
 
