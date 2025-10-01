@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath with unified app integration.
- * Version: 2.8.3
+ * Version: 2.8.4
  * Author: Andrew Baillie
  */
 
@@ -121,10 +121,40 @@ function puzzlepath_activate() {
         $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN display_on_site tinyint(1) DEFAULT 0 AFTER medal_image_url");
     }
     
+    // Add quest_type column for Walking/Driving classification
+    $quest_type_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'quest_type'");
+    if (empty($quest_type_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN quest_type varchar(20) DEFAULT 'walking' AFTER display_on_site");
+    }
+    
+    // Add difficulty column for Easy/Moderate/Hard
+    $difficulty_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'difficulty'");
+    if (empty($difficulty_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN difficulty varchar(20) DEFAULT 'easy' AFTER quest_type");
+    }
+    
+    // Add quest_description column for adventure details
+    $quest_desc_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'quest_description'");
+    if (empty($quest_desc_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN quest_description text DEFAULT NULL AFTER difficulty");
+    }
+    
+    // Add display_on_adventures_page column for adventures page visibility
+    $display_adventures_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'display_on_adventures_page'");
+    if (empty($display_adventures_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN display_on_adventures_page tinyint(1) DEFAULT 0 AFTER quest_description");
+    }
+    
+    // Add quest_image_url column for future custom quest images
+    $quest_image_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'quest_image_url'");
+    if (empty($quest_image_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN quest_image_url varchar(500) DEFAULT NULL AFTER display_on_adventures_page");
+    }
+    
     // Ensure unified app compatibility by updating existing bookings
     puzzlepath_fix_unified_app_compatibility();
     
-    update_option('puzzlepath_booking_version', '2.8.3');
+    update_option('puzzlepath_booking_version', '2.8.4');
 }
 
 register_activation_hook(__FILE__, 'puzzlepath_activate');
@@ -182,7 +212,7 @@ function puzzlepath_fix_unified_app_compatibility() {
  */
 function puzzlepath_update_db_check() {
     $current_version = get_option('puzzlepath_booking_version', '1.0');
-    if (version_compare($current_version, '2.8.3', '<')) {
+    if (version_compare($current_version, '2.8.4', '<')) {
         puzzlepath_activate();
         // Generate hunt codes for existing events that don't have them
         puzzlepath_generate_missing_hunt_codes();
@@ -465,7 +495,7 @@ function puzzlepath_apply_coupon_callback() {
     }
     
     global $wpdb;
-    $coupons_table = $wpdb->prefix . 'pp_coupons';
+    $coupons_table = 'wp2s_pp_coupons';
     $code = sanitize_text_field($_POST['coupon_code']);
     
     error_log('PuzzlePath Coupon: Looking for coupon code: ' . $code);
@@ -507,7 +537,7 @@ add_action('wp_ajax_nopriv_apply_coupon', 'puzzlepath_apply_coupon_callback');
  */
 function puzzlepath_booking_form_shortcode($atts) {
     global $wpdb;
-    $events_table = $wpdb->prefix . 'pp_events';
+    $events_table = 'wp2s_pp_events';
     
     $events = $wpdb->get_results("SELECT * FROM $events_table WHERE seats > 0 AND display_on_site = 1 ORDER BY event_date ASC");
     
@@ -617,8 +647,8 @@ function puzzlepath_booking_confirmation_shortcode($atts) {
     // Get booking details
     $booking = $wpdb->get_row($wpdb->prepare(
         "SELECT b.*, e.title as event_title, e.location, e.event_date 
-         FROM {$wpdb->prefix}pp_bookings b 
-         LEFT JOIN {$wpdb->prefix}pp_events e ON b.event_id = e.id 
+         FROM wp2s_pp_bookings b 
+         LEFT JOIN wp2s_pp_events e ON b.event_id = e.id 
          WHERE b.booking_code = %s",
         $booking_code
     ));
@@ -893,6 +923,349 @@ function puzzlepath_booking_confirmation_test($atts) {
 add_shortcode('puzzlepath_confirmation_test', 'puzzlepath_booking_confirmation_test');
 
 /**
+ * Shortcode to display upcoming adventures from database
+ * Usage: [puzzlepath_upcoming_adventures]
+ */
+function puzzlepath_upcoming_adventures_shortcode($atts) {
+    global $wpdb;
+    $events_table = 'wp2s_pp_events';
+    
+    // Get all quests marked for display on adventures page
+    $quests = $wpdb->get_results(
+        "SELECT * FROM $events_table 
+         WHERE display_on_adventures_page = 1 AND seats > 0 
+         ORDER BY 
+             CASE WHEN hosting_type = 'hosted' THEN 0 ELSE 1 END,
+             event_date ASC,
+             title ASC"
+    );
+    
+    if (empty($quests)) {
+        return '<p>No upcoming adventures available at this time.</p>';
+    }
+
+    // Determine the correct booking page URL dynamically by locating the page
+    // that contains the booking form shortcode. Falls back to /booking/ if not found.
+    if (!function_exists('puzzlepath_get_booking_page_url')) {
+        function puzzlepath_get_booking_page_url() {
+            // Attempt to find a published page with the booking form shortcode
+            $pages = get_pages(array('post_status' => 'publish'));
+            if (!empty($pages)) {
+                foreach ($pages as $p) {
+                    if (isset($p->post_content) && has_shortcode($p->post_content, 'puzzlepath_booking_form')) {
+                        return get_permalink($p->ID);
+                    }
+                }
+            }
+            // Fallback to a conventional slug if none found
+            return site_url('/booking/');
+        }
+    }
+    $booking_page_url = puzzlepath_get_booking_page_url();
+    
+    ob_start();
+    ?>
+    <!-- PuzzlePath Adventures v2.8.4 Updated: <?php echo date('Y-m-d H:i:s'); ?> -->
+    <div class="puzzle-adventures-container">
+        <div class="adventures-grid-wrap">
+            <div class="adventures-grid">
+            <?php foreach ($quests as $quest): ?>
+                <div class="adventure-card">
+                    <div class="adventure-content">
+                        <h3 class="adventure-title"><?php echo esc_html($quest->title); ?></h3>
+                        
+                        <!-- Quest Image -->
+                        <div class="adventure-image">
+                            <?php 
+                            $image_url = !empty($quest->quest_image_url) ? 
+                                esc_url($quest->quest_image_url) : 
+                                plugin_dir_url(__FILE__) . 'images/puzzlepath-logo.png';
+                            ?>
+                            <img src="<?php echo $image_url; ?>" alt="<?php echo esc_attr($quest->title); ?>" loading="lazy">
+                        </div>
+                        
+                        <!-- Date/Time Info -->
+                        <div class="adventure-info">
+                            <div class="info-line">
+                                <span class="info-icon">📅</span>
+                                <?php if ($quest->hosting_type === 'hosted' && $quest->event_date): ?>
+                                    <span><?php echo date('F j, Y \a\t g:i A', strtotime($quest->event_date)); ?></span>
+                                <?php else: ?>
+                                    <span>Anytime Quest</span>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <!-- Starting Location -->
+                            <div class="info-line">
+                                <span class="info-icon">📍</span>
+                                <span><strong>Starts:</strong> <?php echo esc_html($quest->location); ?></span>
+                            </div>
+                            
+                            <!-- Quest Type & Difficulty -->
+                            <div class="info-line">
+                                <?php if ($quest->quest_type === 'driving'): ?>
+                                    <span class="info-icon">🚗</span>
+                                    <span>Driving Quest</span>
+                                <?php else: ?>
+                                    <span class="info-icon">🚶‍♂️</span>
+                                    <span>Walking Quest</span>
+                                <?php endif; ?>
+                                <span class="difficulty-separator"> · </span>
+                                <span class="difficulty"><?php echo ucfirst(esc_html($quest->difficulty)); ?></span>
+                                <?php if ($quest->difficulty === 'easy'): ?>
+                                    <span class="difficulty-note"> · Family-Friendly</span>
+                                <?php elseif ($quest->difficulty === 'moderate'): ?>
+                                    <span class="difficulty-note"> · Fun for Adults & Families</span>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <!-- Quest Description -->
+                            <?php if (!empty($quest->quest_description)): ?>
+                            <div class="info-line">
+                                <span class="info-icon">🕵️‍♀️</span>
+                                <span><?php echo esc_html($quest->quest_description); ?></span>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <!-- Price -->
+                            <div class="info-line price-line">
+                                <span class="info-icon">🎟️</span>
+                                <span><strong>$<?php echo number_format($quest->price, 0); ?> person</strong></span>
+                            </div>
+                            
+                            <!-- Book Now Button -->
+                            <div class="book-now-section">
+                                <a href="https://puzzlepath.com.au/book-today/?event_id=<?php echo $quest->id; ?>" class="book-now-btn">👉 Book Now</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+    
+    <style>
+    /* Cache bust: <?php echo time(); ?> */
+    /* Force centering in Astra + Elementor */
+    .elementor .elementor-widget-shortcode .elementor-widget-container{
+      text-align:center !important;
+    }
+    .elementor .elementor-widget-shortcode .puzzle-adventures-container .adventures-grid{
+      display:inline-grid !important;
+      grid-template-columns:repeat(2, 500px);
+      gap:24px;
+      place-content:center;
+    }
+    .puzzle-adventures-container {
+        box-sizing: border-box;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 24px;
+        width: 100%;
+    }
+
+    /* Desktop-only: increase left padding to nudge grid toward center */
+    @media (min-width: 1025px) {
+        .puzzle-adventures-container {
+            padding-left: 24px;
+            padding-right: 24px;
+        }
+    }
+    
+    /* Ensure the two-card grid is centered regardless of theme/Elementor flex */
+    .adventures-grid-wrap{
+        display:flex !important;
+        justify-content:center !important;
+        align-items:flex-start;
+        width:100%;
+    }
+    .puzzle-adventures-container .adventures-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 500px);
+        gap: 24px;
+        align-items: stretch;
+        justify-content: center !important; /* center grid tracks */
+        justify-items: stretch;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        width: fit-content;
+        max-width: 100%;
+    }
+
+    /* Fallback: if a parent imposes layout, use a flex wrapper behavior */
+    .puzzle-adventures-container {
+        display: block;
+    }
+    @supports (display: flex) {
+        .puzzle-adventures-container:where(.force-center) { /* opt-in hook if ever needed */
+            display: flex;
+            justify-content: center;
+        }
+    }
+    
+    .adventure-card {
+        background: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        border: 2px solid #ddd;
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+    
+    .adventure-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    }
+    
+    .adventure-content {
+        padding: 25px;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+    
+    .adventure-title {
+        font-size: 24px;
+        font-weight: bold;
+        color: #2c3e50;
+        margin: 0 0 20px 0;
+        text-align: center;
+    }
+    
+    .adventure-image {
+        width: 100%;
+        margin-bottom: 20px;
+        overflow: hidden;
+        border-radius: 10px;
+        height: 300px;
+    }
+    
+    .adventure-image img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
+        border-radius: 10px;
+    }
+    
+    .adventure-info {
+        line-height: 1.6;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+    }
+    
+    .info-line {
+        display: flex;
+        align-items: flex-start;
+        margin-bottom: 12px;
+        font-size: 16px;
+    }
+    
+    .info-icon {
+        margin-right: 10px;
+        font-size: 18px;
+        min-width: 25px;
+    }
+    
+    .difficulty-separator {
+        margin: 0 5px;
+    }
+    
+    .difficulty {
+        font-weight: 600;
+        color: #27ae60;
+    }
+    
+    .difficulty-note {
+        color: #7f8c8d;
+        font-style: italic;
+    }
+    
+    .price-line {
+        margin-top: 15px;
+        font-size: 18px;
+        font-weight: bold;
+        color: #e74c3c;
+    }
+    
+    .book-now-section {
+        text-align: center;
+        margin-top: auto;
+        padding-top: 15px;
+        border-top: 1px solid #ecf0f1;
+    }
+    
+    .book-now-btn {
+        display: inline-block;
+        background: linear-gradient(45deg, #3498db, #2980b9);
+        color: white;
+        padding: 12px 25px;
+        text-decoration: none;
+        border-radius: 25px;
+        font-weight: bold;
+        font-size: 16px;
+        transition: all 0.3s ease;
+    }
+    
+    .book-now-btn:hover {
+        background: linear-gradient(45deg, #2980b9, #3498db);
+        transform: scale(1.05);
+        text-decoration: none;
+        color: white;
+    }
+    
+    /* Responsive Design */
+    
+    /* Tablet view (<= 1024px) - 1 column */
+    @media (max-width: 1024px) {
+        .elementor .elementor-widget-shortcode .puzzle-adventures-container .adventures-grid{
+          display:grid !important;
+          grid-template-columns:1fr !important;
+          width:100%;
+          gap:20px;
+        }
+        .adventures-grid {
+            grid-template-columns: 1fr;
+            gap: 24px;
+            width: 100%;
+        }
+        .puzzle-adventures-container {
+            padding: 0 12px;
+        }
+    }
+    
+    /* Mobile view (<= 768px) - 1 column with tighter spacing */
+    @media (max-width: 768px) {
+        .adventures-grid {
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        .adventure-card {
+            margin-bottom: 16px;
+        }
+        .adventure-content {
+            padding: 16px;
+        }
+        .adventure-title {
+            font-size: 20px;
+        }
+        .puzzle-adventures-container {
+            padding: 0 8px;
+        }
+    }
+    </style>
+    <?php
+    return ob_get_clean();
+}
+add_shortcode('puzzlepath_upcoming_adventures', 'puzzlepath_upcoming_adventures_shortcode');
+
+/**
  * Force shortcode processing in content - ensures shortcodes work even if theme doesn't support them
  */
 function puzzlepath_force_shortcode_processing($content) {
@@ -926,60 +1299,126 @@ add_action('wp', 'puzzlepath_debug_shortcodes');
 // ========================= EVENTS MANAGEMENT =========================
 
 /**
+ * Ensure required columns exist on the events table.
+ */
+function puzzlepath_ensure_events_columns($table_name) {
+    global $wpdb;
+    $cols = $wpdb->get_results("SHOW COLUMNS FROM $table_name", OBJECT_K);
+    if (!isset($cols['quest_type'])) {
+        $wpdb->query("ALTER TABLE $table_name ADD COLUMN quest_type varchar(20) DEFAULT 'walking' AFTER display_on_site");
+    }
+    if (!isset($cols['difficulty'])) {
+        $wpdb->query("ALTER TABLE $table_name ADD COLUMN difficulty varchar(20) DEFAULT 'easy' AFTER quest_type");
+    }
+    if (!isset($cols['quest_description'])) {
+        $wpdb->query("ALTER TABLE $table_name ADD COLUMN quest_description text DEFAULT NULL AFTER difficulty");
+    }
+    if (!isset($cols['display_on_adventures_page'])) {
+        $wpdb->query("ALTER TABLE $table_name ADD COLUMN display_on_adventures_page tinyint(1) DEFAULT 0 AFTER quest_description");
+    }
+    if (!isset($cols['quest_image_url'])) {
+        $wpdb->query("ALTER TABLE $table_name ADD COLUMN quest_image_url varchar(500) DEFAULT NULL AFTER display_on_adventures_page");
+    }
+}
+
+/**
+ * Admin-post handler to save events reliably
+ */
+function puzzlepath_handle_event_save() {
+    if (!current_user_can('manage_options')) {
+        wp_die('Insufficient permissions.');
+    }
+
+    try {
+        check_admin_referer('puzzlepath_save_event', 'puzzlepath_event_nonce');
+    } catch (Exception $e) {
+        set_transient('puzzlepath_event_save_error', 'Security check failed', 30);
+        wp_safe_redirect(admin_url('admin.php?page=puzzlepath-events&message=error'));
+        exit;
+    }
+
+    global $wpdb;
+    $table_name = 'wp2s_pp_events';
+    // Ensure DB schema is up to date before saving
+    puzzlepath_ensure_events_columns($table_name);
+
+    $id = isset($_POST['event_id']) ? intval($_POST['event_id']) : 0;
+    $title = sanitize_text_field($_POST['title'] ?? '');
+    $hunt_code = !empty($_POST['hunt_code']) ? sanitize_text_field($_POST['hunt_code']) : null;
+    $hunt_name = !empty($_POST['hunt_name']) ? sanitize_text_field($_POST['hunt_name']) : null;
+    $location = sanitize_text_field($_POST['location'] ?? '');
+    $price = isset($_POST['price']) ? floatval($_POST['price']) : 0;
+    $seats = isset($_POST['seats']) ? intval($_POST['seats']) : 0;
+    $hosting_type = isset($_POST['hosting_type']) && in_array($_POST['hosting_type'], ['hosted', 'self_hosted']) ? $_POST['hosting_type'] : 'hosted';
+    $event_date = ($hosting_type === 'hosted' && !empty($_POST['event_date'])) ? sanitize_text_field($_POST['event_date']) : null;
+
+    $display_on_site = isset($_POST['display_on_site']) ? 1 : 0;
+    $quest_type = isset($_POST['quest_type']) && in_array($_POST['quest_type'], ['walking', 'driving']) ? $_POST['quest_type'] : 'walking';
+    $difficulty = isset($_POST['difficulty']) && in_array($_POST['difficulty'], ['easy', 'moderate', 'hard']) ? $_POST['difficulty'] : 'easy';
+    $quest_description = !empty($_POST['quest_description']) ? sanitize_textarea_field($_POST['quest_description']) : null;
+    $display_on_adventures_page = isset($_POST['display_on_adventures_page']) ? 1 : 0;
+    $quest_image_url = !empty($_POST['quest_image_url']) ? esc_url_raw($_POST['quest_image_url']) : null;
+
+    // Auto values
+    if (empty($hunt_code)) {
+        $hunt_code = puzzlepath_generate_hunt_code(['title' => $title, 'location' => $location]);
+    }
+    if (empty($hunt_name)) {
+        $hunt_name = $title . ' - ' . $location;
+    }
+
+    $data = [
+        'title' => $title,
+        'location' => $location,
+        'price' => $price,
+        'seats' => $seats,
+        'hosting_type' => $hosting_type,
+        'event_date' => $event_date,
+        'display_on_site' => $display_on_site,
+        'quest_type' => $quest_type,
+        'difficulty' => $difficulty,
+        'quest_description' => $quest_description,
+        'display_on_adventures_page' => $display_on_adventures_page,
+        'quest_image_url' => $quest_image_url,
+        'hunt_code' => $hunt_code,
+        'hunt_name' => $hunt_name,
+        'created_at' => current_time('mysql'),
+    ];
+
+    if ($id > 0) {
+        $result = $wpdb->update($table_name, $data, ['id' => $id]);
+    } else {
+        $result = $wpdb->insert($table_name, $data);
+    }
+
+    error_log('PuzzlePath Events (admin-post): save result=' . var_export($result, true) . ' last_error=' . $wpdb->last_error . ' data.quest_image_url=' . ($data['quest_image_url'] ?? 'NULL'));
+
+    if ($result === false) {
+        set_transient('puzzlepath_event_save_error', $wpdb->last_error ?: 'Unknown database error', 30);
+        wp_safe_redirect(admin_url('admin.php?page=puzzlepath-events&message=error'));
+        exit;
+    }
+
+    wp_safe_redirect(admin_url('admin.php?page=puzzlepath-events&message=1'));
+    exit;
+}
+add_action('admin_post_puzzlepath_save_event', 'puzzlepath_handle_event_save');
+
+/**
  * Display the main page for managing events.
  */
 function puzzlepath_events_page() {
     global $wpdb;
-    $table_name = $wpdb->prefix . 'pp_events';
+    $table_name = 'wp2s_pp_events';
 
-    // Handle form submissions for adding/editing events
-    if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['puzzlepath_event_nonce'])) {
-        if (!wp_verify_nonce($_POST['puzzlepath_event_nonce'], 'puzzlepath_save_event')) {
-            wp_die('Security check failed.');
-        }
+    // Ensure all required columns exist (safety if activation didn't add them)
+    puzzlepath_ensure_events_columns($table_name);
 
-        $id = isset($_POST['event_id']) ? intval($_POST['event_id']) : 0;
-        $title = sanitize_text_field($_POST['title']);
-        $hunt_code = !empty($_POST['hunt_code']) ? sanitize_text_field($_POST['hunt_code']) : null;
-        $hunt_name = !empty($_POST['hunt_name']) ? sanitize_text_field($_POST['hunt_name']) : null;
-        $location = sanitize_text_field($_POST['location']);
-        $price = floatval($_POST['price']);
-        $seats = intval($_POST['seats']);
-        $hosting_type = in_array($_POST['hosting_type'], ['hosted', 'self_hosted']) ? $_POST['hosting_type'] : 'hosted';
-        $event_date = ($hosting_type === 'hosted' && !empty($_POST['event_date'])) ? sanitize_text_field($_POST['event_date']) : null;
-
-        $data = [
-            'title' => $title,
-            'location' => $location,
-            'price' => $price,
-            'seats' => $seats,
-            'hosting_type' => $hosting_type,
-            'event_date' => $event_date,
-            'created_at' => current_time('mysql'),
-        ];
-        
-        // Auto-generate hunt code if not provided
-        if (empty($hunt_code)) {
-            $hunt_code = puzzlepath_generate_hunt_code(['title' => $title, 'location' => $location]);
-        }
-        
-        // Auto-generate hunt name if not provided
-        if (empty($hunt_name)) {
-            $hunt_name = $title . ' - ' . $location;
-        }
-        
-        $data['hunt_code'] = $hunt_code;
-        $data['hunt_name'] = $hunt_name;
-
-        if ($id > 0) {
-            $wpdb->update($table_name, $data, ['id' => $id]);
-        } else {
-            $wpdb->insert($table_name, $data);
-        }
-        
-        wp_redirect(admin_url('admin.php?page=puzzlepath-events&message=1'));
-        exit;
+    // Enqueue media library for image upload button on this admin page
+    if (function_exists('wp_enqueue_media')) {
+        wp_enqueue_media();
     }
+    wp_enqueue_script('jquery');
 
     // Handle event deletion
     if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['event_id'])) {
@@ -1001,13 +1440,21 @@ function puzzlepath_events_page() {
         <h1>Events</h1>
 
         <?php if (isset($_GET['message'])): ?>
-            <div class="notice notice-success is-dismissible">
-                <p><?php echo $_GET['message'] == 1 ? 'Event saved successfully.' : 'Event deleted successfully.'; ?></p>
-            </div>
+            <?php if ($_GET['message'] == 'error'): ?>
+                <?php $err = get_transient('puzzlepath_event_save_error'); delete_transient('puzzlepath_event_save_error'); ?>
+                <div class="notice notice-error is-dismissible">
+                    <p><strong>Event save failed:</strong> <?php echo esc_html($err ?: 'Unknown error'); ?></p>
+                </div>
+            <?php else: ?>
+                <div class="notice notice-success is-dismissible">
+                    <p><?php echo $_GET['message'] == 1 ? 'Event saved successfully.' : 'Event deleted successfully.'; ?></p>
+                </div>
+            <?php endif; ?>
         <?php endif; ?>
 
         <h2><?php echo $edit_event ? 'Edit Event' : 'Add New Event'; ?></h2>
-        <form method="post" action="">
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+            <input type="hidden" name="action" value="puzzlepath_save_event" />
             <input type="hidden" name="event_id" value="<?php echo $edit_event ? esc_attr($edit_event->id) : ''; ?>">
             <?php wp_nonce_field('puzzlepath_save_event', 'puzzlepath_event_nonce'); ?>
             <table class="form-table">
@@ -1054,6 +1501,62 @@ function puzzlepath_events_page() {
                     <th scope="row"><label for="seats">Seats</label></th>
                     <td><input type="number" name="seats" id="seats" value="<?php echo $edit_event ? esc_attr($edit_event->seats) : ''; ?>" class="small-text" required></td>
                 </tr>
+                <tr>
+                    <th scope="row"><label for="display_on_site">Display on Booking Form</label></th>
+                    <td>
+                        <label><input type="checkbox" name="display_on_site" id="display_on_site" value="1" <?php echo ($edit_event && $edit_event->display_on_site) ? 'checked' : ''; ?>> Show this quest in the public booking form</label>
+                        <p class="description">When checked, this quest will appear in the public booking form dropdown.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="quest_type">Quest Type</label></th>
+                    <td>
+                        <select name="quest_type" id="quest_type">
+                            <option value="walking" <?php selected($edit_event ? $edit_event->quest_type : 'walking', 'walking'); ?>>Walking Quest 🚶‍♂️</option>
+                            <option value="driving" <?php selected($edit_event ? $edit_event->quest_type : 'walking', 'driving'); ?>>Driving Quest 🚗</option>
+                        </select>
+                        <p class="description">Specify whether this is a walking or driving quest.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="difficulty">Difficulty Level</label></th>
+                    <td>
+                        <select name="difficulty" id="difficulty">
+                            <option value="easy" <?php selected($edit_event ? $edit_event->difficulty : 'easy', 'easy'); ?>>Easy (Family-Friendly)</option>
+                            <option value="moderate" <?php selected($edit_event ? $edit_event->difficulty : 'easy', 'moderate'); ?>>Moderate (Fun for Adults & Families)</option>
+                            <option value="hard" <?php selected($edit_event ? $edit_event->difficulty : 'easy', 'hard'); ?>>Hard (Challenge Mode)</option>
+                        </select>
+                        <p class="description">Select the difficulty level for this quest.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="quest_description">Quest Description</label></th>
+                    <td>
+                        <textarea name="quest_description" id="quest_description" rows="3" class="large-text"><?php echo $edit_event ? esc_textarea($edit_event->quest_description) : ''; ?></textarea>
+                        <p class="description">Brief description of the quest adventure (displayed on adventures page).</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="display_on_adventures_page">Display on Adventures Page</label></th>
+                    <td>
+                        <label><input type="checkbox" name="display_on_adventures_page" id="display_on_adventures_page" value="1" <?php echo ($edit_event && $edit_event->display_on_adventures_page) ? 'checked' : ''; ?>> Show this quest on the adventures page</label>
+                        <p class="description">When checked, this quest will appear in the adventures page auto-populated section.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="quest_image_url">Quest Image URL</label></th>
+                    <td>
+                        <input type="url" name="quest_image_url" id="quest_image_url" value="<?php echo $edit_event ? esc_attr($edit_event->quest_image_url) : ''; ?>" class="regular-text" placeholder="https://example.com/your-image.jpg">
+                        <button type="button" class="button" id="quest_image_upload_btn">Select/Upload Image</button>
+                        <button type="button" class="button" id="quest_image_clear_btn">Clear</button>
+                        <div id="quest_image_preview" style="margin-top:10px;">
+                            <?php if ($edit_event && !empty($edit_event->quest_image_url)) : ?>
+                                <img src="<?php echo esc_url($edit_event->quest_image_url); ?>" style="max-width:300px;height:auto;border:1px solid #ddd;border-radius:6px;" />
+                            <?php endif; ?>
+                        </div>
+                        <p class="description">Optional: Custom hero image for this quest (leave blank to use the default Puzzle Path logo). You can paste a URL or click Select/Upload to choose from the Media Library.</p>
+                    </td>
+                </tr>
             </table>
             <?php submit_button($edit_event ? 'Update Event' : 'Add Event'); ?>
         </form>
@@ -1066,11 +1569,13 @@ function puzzlepath_events_page() {
                 <tr>
                     <th>Title</th>
                     <th>Hunt</th>
-                    <th>Hosting Type</th>
+                    <th>Type/Difficulty</th>
                     <th>Event Date</th>
                     <th>Location</th>
                     <th>Price</th>
                     <th>Seats Left</th>
+                    <th>Booking Form</th>
+                    <th>Adventures Page</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -1092,11 +1597,26 @@ function puzzlepath_events_page() {
                         $hunt_display = 'N/A';
                     }
                     echo '<td>' . $hunt_display . '</td>';
-                    echo '<td>' . ($event->hosting_type === 'hosted' ? 'Hosted' : 'Self Hosted (App)') . '</td>';
+                    
+                    // Quest type and difficulty column (defensive defaults)
+                    $qtype = isset($event->quest_type) && $event->quest_type ? $event->quest_type : 'walking';
+                    $diff = isset($event->difficulty) && $event->difficulty ? $event->difficulty : 'easy';
+                    $type_icon = ($qtype === 'driving') ? '🚗' : '🚶‍♂️';
+                    $type_text = ucfirst($qtype);
+                    $difficulty_text = ucfirst($diff);
+                    echo '<td>' . $type_icon . ' ' . $type_text . '<br/><small>' . $difficulty_text . '</small></td>';
+                    
                     echo '<td>' . ($event->event_date ? date('F j, Y, g:i a', strtotime($event->event_date)) : 'N/A') . '</td>';
                     echo '<td>' . esc_html($event->location) . '</td>';
                     echo '<td>$' . number_format($event->price, 2) . '</td>';
                     echo '<td>' . esc_html($event->seats) . '</td>';
+                    
+                    // Display on booking form status
+                    echo '<td>' . ($event->display_on_site ? '<span style="color: green;">✓ Visible</span>' : '<span style="color: red;">✗ Hidden</span>') . '</td>';
+                    
+                    // Display on adventures page status
+                    $show_adv = isset($event->display_on_adventures_page) ? intval($event->display_on_adventures_page) : 0;
+                    echo '<td>' . ($show_adv ? '<span style=\"color: green;\">✓ Visible</span>' : '<span style=\"color: red;\">✗ Hidden</span>') . '</td>';
                     echo '<td>';
                     echo '<a href="' . admin_url('admin.php?page=puzzlepath-events&action=edit&event_id=' . $event->id) . '">Edit</a> | ';
                     $delete_nonce = wp_create_nonce('puzzlepath_delete_event_' . $event->id);
@@ -1119,6 +1639,32 @@ function puzzlepath_events_page() {
         }
         toggleEventDate();
         $('#hosting_type').on('change', toggleEventDate);
+
+        // WordPress media uploader for Quest Image URL
+        var questImageFrame;
+        $('#quest_image_upload_btn').on('click', function(e) {
+            e.preventDefault();
+            if (questImageFrame) {
+                questImageFrame.open();
+                return;
+            }
+            questImageFrame = wp.media({
+                title: 'Select or Upload Quest Image',
+                button: { text: 'Use this image' },
+                multiple: false
+            });
+            questImageFrame.on('select', function() {
+                var attachment = questImageFrame.state().get('selection').first().toJSON();
+                $('#quest_image_url').val(attachment.url);
+                $('#quest_image_preview').html('<img src="' + attachment.url + '" style="max-width:300px;height:auto;border:1px solid #ddd;border-radius:6px;" />');
+            });
+            questImageFrame.open();
+        });
+
+        $('#quest_image_clear_btn').on('click', function() {
+            $('#quest_image_url').val('');
+            $('#quest_image_preview').empty();
+        });
     });
     </script>
     <?php
@@ -1783,7 +2329,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
             $tickets = intval($params['tickets']);
             $coupon_code = isset($params['coupon_code']) ? sanitize_text_field($params['coupon_code']) : null;
 
-            $event = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pp_events WHERE id = %d", $event_id));
+            $event = $wpdb->get_row($wpdb->prepare("SELECT * FROM wp2s_pp_events WHERE id = %d", $event_id));
 
             if (!$event || $event->seats < $tickets) {
                 return new WP_Error('invalid_event', 'Event not found or not enough seats.', array('status' => 400));
@@ -1793,7 +2339,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
             $coupon_id = null;
 
             if ($coupon_code) {
-                $coupon = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pp_coupons WHERE code = %s AND (expires_at IS NULL OR expires_at > NOW()) AND (max_uses = 0 OR times_used < max_uses)", $coupon_code));
+                $coupon = $wpdb->get_row($wpdb->prepare("SELECT * FROM wp2s_pp_coupons WHERE code = %s AND (expires_at IS NULL OR expires_at > NOW()) AND (max_uses = 0 OR times_used < max_uses)", $coupon_code));
                 if ($coupon) {
                     $total_price = $total_price - ($total_price * ($coupon->discount_percent / 100));
                     $coupon_id = $coupon->id;
@@ -1832,7 +2378,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                     'booking_date' => current_time('mysql')
                 ];
                 
-                $wpdb->insert("{$wpdb->prefix}pp_bookings", $booking_data);
+                $wpdb->insert("wp2s_pp_bookings", $booking_data);
                 $booking_id = $wpdb->insert_id;
 
                 $payment_intent = \Stripe\PaymentIntent::create([
@@ -1845,7 +2391,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                     ],
                 ]);
 
-                $wpdb->update("{$wpdb->prefix}pp_bookings", 
+                $wpdb->update("wp2s_pp_bookings", 
                     ['stripe_payment_intent_id' => $payment_intent->id],
                     ['id' => $booking_id]
                 );
@@ -1886,9 +2432,9 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
         
         private function fulfill_booking($payment_intent_id) {
             global $wpdb;
-            $bookings_table = $wpdb->prefix . 'pp_bookings';
-            $events_table = $wpdb->prefix . 'pp_events';
-            $coupons_table = $wpdb->prefix . 'pp_coupons';
+            $bookings_table = 'wp2s_pp_bookings';
+            $events_table = 'wp2s_pp_events';
+            $coupons_table = 'wp2s_pp_coupons';
 
             $booking = $wpdb->get_row($wpdb->prepare("SELECT * FROM $bookings_table WHERE stripe_payment_intent_id = %s", $payment_intent_id));
 
@@ -2270,7 +2816,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
          */
         public function get_hunts_list($request) {
             global $wpdb;
-            $events_table = $wpdb->prefix . 'pp_events';
+            $events_table = 'wp2s_pp_events';
             
             // Get query parameters
             $active_only = $request->get_param('active_only') !== 'false'; // Default to true

@@ -90,7 +90,7 @@ class PuzzlePath_Stripe_Integration {
         $tickets = intval($params['tickets']);
         $coupon_code = isset($params['coupon_code']) ? sanitize_text_field($params['coupon_code']) : null;
 
-        $event = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pp_events WHERE id = %d", $event_id));
+        $event = $wpdb->get_row($wpdb->prepare("SELECT * FROM wp2s_pp_events WHERE id = %d", $event_id));
 
         if (!$event || $event->seats < $tickets) {
             return new WP_Error('invalid_event', 'Event not found or not enough seats.', array('status' => 400));
@@ -178,9 +178,9 @@ class PuzzlePath_Stripe_Integration {
     
     private function fulfill_booking($payment_intent_id) {
         global $wpdb;
-        $bookings_table = $wpdb->prefix . 'pp_bookings';
-        $events_table = $wpdb->prefix . 'pp_events';
-        $coupons_table = $wpdb->prefix . 'pp_coupons';
+        $bookings_table = 'wp2s_pp_bookings';
+        $events_table = 'wp2s_pp_events';
+        $coupons_table = 'wp2s_pp_coupons';
 
         $booking = $wpdb->get_row($wpdb->prepare("SELECT * FROM $bookings_table WHERE stripe_payment_intent_id = %s", $payment_intent_id));
 
@@ -215,7 +215,7 @@ class PuzzlePath_Stripe_Integration {
         $event_title = '';
         $event_date = '';
         global $wpdb;
-        $event = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pp_events WHERE id = %d", $booking->event_id));
+        $event = $wpdb->get_row($wpdb->prepare("SELECT * FROM wp2s_pp_events WHERE id = %d", $booking->event_id));
         if ($event) {
             $event_title = $event->title;
             $event_date = $event->event_date;

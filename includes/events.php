@@ -28,6 +28,14 @@ function puzzlepath_events_page() {
         $seats = intval($_POST['seats']);
         $hosting_type = in_array($_POST['hosting_type'], ['hosted', 'self_hosted']) ? $_POST['hosting_type'] : 'hosted';
         $event_date = ($hosting_type === 'hosted' && !empty($_POST['event_date'])) ? sanitize_text_field($_POST['event_date']) : null;
+        
+        // Handle new adventure page fields
+        $display_on_site = isset($_POST['display_on_site']) ? 1 : 0;
+        $quest_type = in_array($_POST['quest_type'], ['walking', 'driving']) ? $_POST['quest_type'] : 'walking';
+        $difficulty = in_array($_POST['difficulty'], ['easy', 'moderate', 'hard']) ? $_POST['difficulty'] : 'easy';
+        $quest_description = !empty($_POST['quest_description']) ? sanitize_textarea_field($_POST['quest_description']) : null;
+        $display_on_adventures_page = isset($_POST['display_on_adventures_page']) ? 1 : 0;
+        $quest_image_url = !empty($_POST['quest_image_url']) ? esc_url_raw($_POST['quest_image_url']) : null;
 
         $data = [
             'title' => $title,
@@ -36,6 +44,12 @@ function puzzlepath_events_page() {
             'seats' => $seats,
             'hosting_type' => $hosting_type,
             'event_date' => $event_date,
+            'display_on_site' => $display_on_site,
+            'quest_type' => $quest_type,
+            'difficulty' => $difficulty,
+            'quest_description' => $quest_description,
+            'display_on_adventures_page' => $display_on_adventures_page,
+            'quest_image_url' => $quest_image_url,
         ];
 
         if ($id > 0) {
@@ -122,6 +136,55 @@ function puzzlepath_events_page() {
                     <th scope="row"><label for="seats">Seats</label></th>
                     <td><input type="number" name="seats" id="seats" value="<?php echo $edit_event ? esc_attr($edit_event->seats) : ''; ?>" class="small-text" required></td>
                 </tr>
+                <tr>
+                    <th scope="row"><label for="display_on_site">Display on Booking Form</label></th>
+                    <td>
+                        <label><input type="checkbox" name="display_on_site" id="display_on_site" value="1" <?php echo ($edit_event && $edit_event->display_on_site) ? 'checked' : ''; ?>> Show this quest in the public booking form</label>
+                        <p class="description">When checked, this quest will appear in the public booking form dropdown.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="quest_type">Quest Type</label></th>
+                    <td>
+                        <select name="quest_type" id="quest_type">
+                            <option value="walking" <?php selected($edit_event ? $edit_event->quest_type : 'walking', 'walking'); ?>>Walking Quest 🚶‍♂️</option>
+                            <option value="driving" <?php selected($edit_event ? $edit_event->quest_type : 'walking', 'driving'); ?>>Driving Quest 🚗</option>
+                        </select>
+                        <p class="description">Specify whether this is a walking or driving quest.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="difficulty">Difficulty Level</label></th>
+                    <td>
+                        <select name="difficulty" id="difficulty">
+                            <option value="easy" <?php selected($edit_event ? $edit_event->difficulty : 'easy', 'easy'); ?>>Easy (Family-Friendly)</option>
+                            <option value="moderate" <?php selected($edit_event ? $edit_event->difficulty : 'easy', 'moderate'); ?>>Moderate (Fun for Adults & Families)</option>
+                            <option value="hard" <?php selected($edit_event ? $edit_event->difficulty : 'easy', 'hard'); ?>>Hard (Challenge Mode)</option>
+                        </select>
+                        <p class="description">Select the difficulty level for this quest.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="quest_description">Quest Description</label></th>
+                    <td>
+                        <textarea name="quest_description" id="quest_description" rows="3" class="large-text"><?php echo $edit_event ? esc_textarea($edit_event->quest_description) : ''; ?></textarea>
+                        <p class="description">Brief description of the quest adventure (displayed on adventures page).</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="display_on_adventures_page">Display on Adventures Page</label></th>
+                    <td>
+                        <label><input type="checkbox" name="display_on_adventures_page" id="display_on_adventures_page" value="1" <?php echo ($edit_event && $edit_event->display_on_adventures_page) ? 'checked' : ''; ?>> Show this quest on the adventures page</label>
+                        <p class="description">When checked, this quest will appear in the adventures page auto-populated section.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="quest_image_url">Quest Image URL</label></th>
+                    <td>
+                        <input type="url" name="quest_image_url" id="quest_image_url" value="<?php echo $edit_event ? esc_attr($edit_event->quest_image_url) : ''; ?>" class="regular-text">
+                        <p class="description">Optional: Custom image URL for this quest (leave blank to use default Puzzle Path logo).</p>
+                    </td>
+                </tr>
             </table>
             <?php submit_button($edit_event ? 'Update Event' : 'Add Event'); ?>
         </form>
@@ -134,12 +197,13 @@ function puzzlepath_events_page() {
                 <tr>
                     <th>Event ID</th>
                     <th>Title</th>
-                    <th>Hosting Type</th>
+                    <th>Type/Difficulty</th>
                     <th>Event Date</th>
                     <th>Location</th>
                     <th>Price</th>
                     <th>Seats Left</th>
-                    <th>Display on Site</th>
+                    <th>Booking Form</th>
+                    <th>Adventures Page</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -150,12 +214,23 @@ function puzzlepath_events_page() {
                     echo '<tr>';
                     echo '<td>' . esc_html($event->event_uid ?: $event->id) . '</td>';
                     echo '<td>' . esc_html($event->title) . '</td>';
-                    echo '<td>' . ($event->hosting_type === 'hosted' ? 'Hosted' : 'Self Hosted (App)') . '</td>';
+                    
+                    // Quest type and difficulty column
+                    $type_icon = ($event->quest_type === 'driving') ? '🚗' : '🚶‍♂️';
+                    $type_text = ucfirst($event->quest_type ?: 'walking');
+                    $difficulty_text = ucfirst($event->difficulty ?: 'easy');
+                    echo '<td>' . $type_icon . ' ' . $type_text . '<br/><small>' . $difficulty_text . '</small></td>';
+                    
                     echo '<td>' . ($event->event_date ? date('F j, Y, g:i a', strtotime($event->event_date)) : 'N/A') . '</td>';
                     echo '<td>' . esc_html($event->location) . '</td>';
                     echo '<td>$' . number_format($event->price, 2) . '</td>';
                     echo '<td>' . esc_html($event->seats) . '</td>';
+                    
+                    // Display on booking form status
                     echo '<td>' . ($event->display_on_site ? '<span style="color: green;">✓ Visible</span>' : '<span style="color: red;">✗ Hidden</span>') . '</td>';
+                    
+                    // Display on adventures page status
+                    echo '<td>' . ($event->display_on_adventures_page ? '<span style="color: green;">✓ Visible</span>' : '<span style="color: red;">✗ Hidden</span>') . '</td>';
                     echo '<td>';
                     echo '<a href="' . admin_url('admin.php?page=puzzlepath-events&action=edit&event_id=' . $event->id) . '">Edit</a> | ';
                     $delete_nonce = wp_create_nonce('puzzlepath_delete_event_' . $event->id);
