@@ -382,6 +382,7 @@ function puzzlepath_register_admin_menus() {
     add_submenu_page('puzzlepath-booking', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
     add_submenu_page('puzzlepath-booking', 'Quests', 'Quests', 'manage_options', 'puzzlepath-quests', 'puzzlepath_quests_page');
     add_submenu_page('puzzlepath-booking', 'Quest Import', 'Quest Import', 'edit_posts', 'puzzlepath-quest-import', 'puzzlepath_quest_import_page');
+    add_submenu_page('puzzlepath-booking', 'Test Bookings', 'Test Bookings', 'manage_options', 'puzzlepath-test-bookings', 'puzzlepath_test_bookings_page');
     add_submenu_page('puzzlepath-booking', 'Settings', 'Settings', 'manage_options', 'puzzlepath-settings', 'puzzlepath_settings_page');
     if (class_exists('PuzzlePath_Stripe_Integration')) {
         $stripe_instance = PuzzlePath_Stripe_Integration::get_instance();
@@ -557,19 +558,16 @@ function puzzlepath_booking_form_shortcode($atts) {
                     <?php foreach ($events as $event): ?>
                         <option value="<?php echo esc_attr($event->id); ?>" 
                                 data-price="<?php echo esc_attr($event->price); ?>"
-                                data-seats="<?php echo esc_attr($event->seats); ?>">
+                                data-seats="<?php echo esc_attr($event->seats); ?>"
+                                data-hunt-code="<?php echo esc_attr($event->hunt_code); ?>"
+                                data-hunt-name="<?php echo esc_attr($event->hunt_name); ?>">
                             <?php 
+                            // Display only: Event title, date (if available), and price
                             echo esc_html($event->title);
-                            if (!empty($event->hunt_name)) {
-                                echo ' - ' . esc_html($event->hunt_name);
-                            }
-                            if (!empty($event->hunt_code)) {
-                                echo ' (' . esc_html($event->hunt_code) . ')';
-                            }
                             if ($event->event_date) {
                                 echo ' - ' . date('F j, Y, g:i a', strtotime($event->event_date));
                             }
-                            echo ' - $' . number_format($event->price, 2) . ' - ' . $event->seats . ' seats left';
+                            echo ' - $' . number_format($event->price, 2);
                             ?>
                         </option>
                     <?php endforeach; ?>
@@ -1669,6 +1667,9 @@ function puzzlepath_events_page() {
     </script>
     <?php
 }
+
+// Include test bookings admin functionality
+require_once plugin_dir_path(__FILE__) . 'admin-test-bookings.php';
 
 // ========================= QUEST IMPORT SYSTEM =========================
 
@@ -4836,7 +4837,22 @@ function puzzlepath_get_quest_clues_ajax() {
     }
     
     function editClue(clueId) {
-        alert('Edit Clue functionality coming soon for clue ID: ' + clueId);
+        document.getElementById('edit-clue-modal').style.display = 'block';
+        document.getElementById('edit-clue-content').innerHTML = 'Loading...';
+        
+        jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', {
+            action: 'get_clue',
+            clue_id: clueId,
+            nonce: '<?php echo wp_create_nonce('edit_clue_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                showEditClueForm(response.data);
+            } else {
+                document.getElementById('edit-clue-content').innerHTML = 'Error loading clue: ' + (response.data || 'Unknown error');
+            }
+        }).fail(function(xhr, status, error) {
+            document.getElementById('edit-clue-content').innerHTML = 'AJAX Error: ' + error;
+        });
     }
     
     function toggleClueStatus(clueId, newStatus) {
@@ -4850,13 +4866,277 @@ function puzzlepath_get_quest_clues_ajax() {
             alert('Delete clue functionality coming soon');
         }
     }
+    
+    function closeEditClue() {
+        document.getElementById('edit-clue-modal').style.display = 'none';
+    }
+    
+    function showEditClueForm(clue) {
+        var formHtml = `
+            <h2 style="margin: 0 0 20px 0; padding-right: 40px;">Edit Clue #${clue.clue_order}</h2>
+            
+            <form id="edit-clue-form">
+                <input type="hidden" id="edit-clue-id" value="${clue.id}">
+                <input type="hidden" id="edit-hunt-id" value="${clue.hunt_id}">
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                    <div>
+                        <label for="edit-clue-order"><strong>Clue Order:</strong></label>
+                        <input type="number" id="edit-clue-order" value="${clue.clue_order}" min="1" style="width: 100%; padding: 5px; margin-top: 5px;" required>
+                    </div>
+                    
+                    <div>
+                        <label for="edit-clue-title"><strong>Title:</strong></label>
+                        <input type="text" id="edit-clue-title" value="${clue.title || ''}" style="width: 100%; padding: 5px; margin-top: 5px;">
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="edit-clue-text"><strong>Clue Text:</strong></label>
+                    <textarea id="edit-clue-text" style="width: 100%; height: 100px; padding: 5px; margin-top: 5px; resize: vertical;" required>${clue.clue_text || ''}</textarea>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="edit-task-description"><strong>Task Description:</strong></label>
+                    <textarea id="edit-task-description" style="width: 100%; height: 80px; padding: 5px; margin-top: 5px; resize: vertical;">${clue.task_description || ''}</textarea>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="edit-hint-text"><strong>Hint Text:</strong></label>
+                    <textarea id="edit-hint-text" style="width: 100%; height: 60px; padding: 5px; margin-top: 5px; resize: vertical;">${clue.hint_text || ''}</textarea>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="edit-answer"><strong>Answer:</strong></label>
+                    <input type="text" id="edit-answer" value="${clue.answer || ''}" style="width: 100%; padding: 5px; margin-top: 5px;" required>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <label for="edit-latitude"><strong>Latitude:</strong></label>
+                        <input type="number" id="edit-latitude" value="${clue.latitude || ''}" step="any" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="e.g. -27.4698">
+                    </div>
+                    
+                    <div>
+                        <label for="edit-longitude"><strong>Longitude:</strong></label>
+                        <input type="number" id="edit-longitude" value="${clue.longitude || ''}" step="any" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="e.g. 153.0251">
+                    </div>
+                    
+                    <div>
+                        <label for="edit-geofence-radius"><strong>Geofence Radius (m):</strong></label>
+                        <input type="number" id="edit-geofence-radius" value="${clue.geofence_radius || ''}" min="1" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="e.g. 50">
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="edit-image-url"><strong>Image URL:</strong></label>
+                    <input type="url" id="edit-image-url" value="${clue.image_url || ''}" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="https://example.com/image.jpg">
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; font-weight: bold;">
+                        <input type="checkbox" id="edit-is-active" ${clue.is_active ? 'checked' : ''} style="margin-right: 8px;">
+                        Clue is Active
+                    </label>
+                </div>
+                
+                <div style="padding: 15px 0; border-top: 1px solid #ddd; text-align: right;">
+                    <button type="button" class="button" onclick="closeEditClue()" style="margin-right: 10px;">Cancel</button>
+                    <button type="button" class="button button-primary" id="save-clue-btn" onclick="saveClueChanges()">Save Changes</button>
+                </div>
+            </form>
+        `;
+        
+        document.getElementById('edit-clue-content').innerHTML = formHtml;
+    }
+    
+    function saveClueChanges() {
+        // Basic validation
+        var clueOrder = document.getElementById('edit-clue-order').value;
+        var clueText = document.getElementById('edit-clue-text').value.trim();
+        var answer = document.getElementById('edit-answer').value.trim();
+        var latitude = document.getElementById('edit-latitude').value;
+        var longitude = document.getElementById('edit-longitude').value;
+        
+        if (!clueOrder || clueOrder < 1) {
+            alert('Please enter a valid clue order (1 or greater)');
+            return;
+        }
+        
+        if (!clueText) {
+            alert('Clue text is required');
+            document.getElementById('edit-clue-text').focus();
+            return;
+        }
+        
+        if (!answer) {
+            alert('Answer is required');
+            document.getElementById('edit-answer').focus();
+            return;
+        }
+        
+        // Validate coordinates if provided
+        if (latitude && (latitude < -90 || latitude > 90)) {
+            alert('Latitude must be between -90 and 90 degrees');
+            document.getElementById('edit-latitude').focus();
+            return;
+        }
+        
+        if (longitude && (longitude < -180 || longitude > 180)) {
+            alert('Longitude must be between -180 and 180 degrees');
+            document.getElementById('edit-longitude').focus();
+            return;
+        }
+        
+        var saveBtn = document.getElementById('save-clue-btn');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        
+        var formData = {
+            action: 'save_clue',
+            clue_id: document.getElementById('edit-clue-id').value,
+            clue_order: document.getElementById('edit-clue-order').value,
+            title: document.getElementById('edit-clue-title').value,
+            clue_text: document.getElementById('edit-clue-text').value,
+            task_description: document.getElementById('edit-task-description').value,
+            hint_text: document.getElementById('edit-hint-text').value,
+            answer: document.getElementById('edit-answer').value,
+            latitude: document.getElementById('edit-latitude').value,
+            longitude: document.getElementById('edit-longitude').value,
+            geofence_radius: document.getElementById('edit-geofence-radius').value,
+            image_url: document.getElementById('edit-image-url').value,
+            is_active: document.getElementById('edit-is-active').checked ? 1 : 0,
+            nonce: '<?php echo wp_create_nonce('save_clue_nonce'); ?>'
+        };
+        
+        jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', formData, function(response) {
+            if (response.success) {
+                alert('Clue updated successfully!');
+                closeEditClue();
+                // Refresh the clues list by reloading the current quest clues
+                refreshCluesList();
+                }
+            } else {
+                alert('Error updating clue: ' + response.data);
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Changes';
+            }
+        }).fail(function() {
+            alert('Network error occurred while saving clue.');
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save Changes';
+        });
+    }
+    
+    function refreshCluesList() {
+        var currentModal = document.getElementById('manage-clues-modal');
+        if (currentModal && currentModal.style.display === 'block') {
+            // Get the current quest ID from the page content
+            var questContent = document.getElementById('manage-clues-content').innerHTML;
+            var questIdMatch = questContent.match(/manageClues\((\d+)\)/);
+            
+            if (questIdMatch) {
+                var questId = questIdMatch[1];
+                // Reload the clues for this quest
+                document.getElementById('manage-clues-content').innerHTML = 'Loading...';
+                
+                jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', {
+                    action: 'get_quest_clues',
+                    quest_id: questId,
+                    nonce: '<?php echo wp_create_nonce('quest_clues_nonce'); ?>'
+                }, function(response) {
+                    if (response.success) {
+                        document.getElementById('manage-clues-content').innerHTML = response.data;
+                    } else {
+                        document.getElementById('manage-clues-content').innerHTML = 'Error refreshing clues: ' + (response.data || 'Unknown error');
+                    }
+                }).fail(function(xhr, status, error) {
+                    document.getElementById('manage-clues-content').innerHTML = 'AJAX Error: ' + error;
+                });
+            } else {
+                // Fallback to page reload if we can't determine the quest ID
+                location.reload();
+            }
+        }
+    }
     </script>
     <?php
     
     $content = ob_get_clean();
     wp_send_json_success($content);
-}
+};
 add_action('wp_ajax_get_quest_clues', 'puzzlepath_get_quest_clues_ajax');
+
+/**
+ * AJAX handler to get individual clue data for editing
+ */
+function puzzlepath_get_clue_ajax() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+    }
+    
+    if (!isset($_POST['clue_id']) || !wp_verify_nonce($_POST['nonce'], 'edit_clue_nonce')) {
+        wp_send_json_error('Invalid request');
+    }
+    
+    global $wpdb;
+    $clues_table = $wpdb->prefix . 'pp_clues';
+    $clue_id = intval($_POST['clue_id']);
+    
+    $clue = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$clues_table} WHERE id = %d",
+        $clue_id
+    ));
+    
+    if (!$clue) {
+        wp_send_json_error('Clue not found');
+    }
+    
+    wp_send_json_success($clue);
+}
+add_action('wp_ajax_get_clue', 'puzzlepath_get_clue_ajax');
+
+/**
+ * AJAX handler to save edited clue data
+ */
+function puzzlepath_save_clue_ajax() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+    }
+    
+    if (!isset($_POST['clue_id']) || !wp_verify_nonce($_POST['nonce'], 'save_clue_nonce')) {
+        wp_send_json_error('Invalid request');
+    }
+    
+    global $wpdb;
+    $clues_table = $wpdb->prefix . 'pp_clues';
+    
+    $clue_id = intval($_POST['clue_id']);
+    
+    // Prepare data for update
+    $data = [
+        'clue_order' => intval($_POST['clue_order']),
+        'title' => sanitize_text_field($_POST['title']),
+        'clue_text' => sanitize_textarea_field($_POST['clue_text']),
+        'task_description' => sanitize_textarea_field($_POST['task_description']),
+        'hint_text' => sanitize_textarea_field($_POST['hint_text']),
+        'answer' => sanitize_text_field($_POST['answer']),
+        'latitude' => !empty($_POST['latitude']) ? floatval($_POST['latitude']) : null,
+        'longitude' => !empty($_POST['longitude']) ? floatval($_POST['longitude']) : null,
+        'geofence_radius' => !empty($_POST['geofence_radius']) ? intval($_POST['geofence_radius']) : null,
+        'image_url' => !empty($_POST['image_url']) ? esc_url_raw($_POST['image_url']) : null,
+        'is_active' => isset($_POST['is_active']) ? 1 : 0
+    ];
+    
+    $result = $wpdb->update($clues_table, $data, ['id' => $clue_id]);
+    
+    if ($result === false) {
+        wp_send_json_error('Database error: ' . $wpdb->last_error);
+    }
+    
+    wp_send_json_success('Clue updated successfully');
+}
+add_action('wp_ajax_save_clue', 'puzzlepath_save_clue_ajax');
 
 /**
  * Quest Management Page
@@ -5393,6 +5673,7 @@ function puzzlepath_quests_page() {
         var editModal = document.getElementById('edit-quest-modal');
         var cluesModal = document.getElementById('manage-clues-modal');
         var addModal = document.getElementById('add-quest-modal');
+        var editClueModal = document.getElementById('edit-clue-modal');
         
         if (event.target == detailsModal) {
             detailsModal.style.display = 'none';
@@ -5402,6 +5683,8 @@ function puzzlepath_quests_page() {
             cluesModal.style.display = 'none';
         } else if (event.target == addModal) {
             addModal.style.display = 'none';
+        } else if (event.target == editClueModal) {
+            editClueModal.style.display = 'none';
         }
     }
     </script>
@@ -5507,6 +5790,16 @@ function puzzlepath_quest_modals() {
         <div style="background-color: #fefefe; margin: 20px auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 5px; max-height: calc(100vh - 40px); overflow-y: auto; position: relative; min-height: 200px;">
             <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeAddQuest()">&times;</span>
             <div id="add-quest-content" style="margin-top: 10px; padding-right: 10px;">
+                Loading...
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Clue Modal -->
+    <div id="edit-clue-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 20px auto; padding: 20px; border: 1px solid #888; width: 95%; max-width: 800px; border-radius: 5px; max-height: calc(100vh - 40px); overflow-y: auto; position: relative; min-height: 200px;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeEditClue()">&times;</span>
+            <div id="edit-clue-content" style="margin-top: 10px; padding-right: 10px;">
                 Loading...
             </div>
         </div>
