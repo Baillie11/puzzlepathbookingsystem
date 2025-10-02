@@ -70,6 +70,29 @@ function puzzlepath_activate() {
     ) $charset_collate;";
     dbDelta($sql);
     
+    // Clues Table - For quest clue data
+    $table_name = $wpdb->prefix . 'pp_clues';
+    $sql = "CREATE TABLE $table_name (
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        hunt_id mediumint(9) NOT NULL,
+        clue_order int(11) NOT NULL,
+        title varchar(255) DEFAULT NULL,
+        clue_text text NOT NULL,
+        task_description text DEFAULT NULL,
+        hint_text text DEFAULT NULL,
+        answer varchar(255) NOT NULL,
+        latitude decimal(10,7) DEFAULT NULL,
+        longitude decimal(10,7) DEFAULT NULL,
+        geofence_radius int(11) DEFAULT NULL,
+        image_url varchar(500) DEFAULT NULL,
+        is_active tinyint(1) DEFAULT 1 NOT NULL,
+        created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        PRIMARY KEY  (id),
+        INDEX hunt_id (hunt_id),
+        INDEX is_active (is_active),
+        INDEX clue_order (clue_order)
+    ) $charset_collate;";
+    dbDelta($sql);
     
     // Create compatibility view for unified app
     $view_name = $wpdb->prefix . 'pp_bookings_unified';
@@ -5015,7 +5038,6 @@ function puzzlepath_get_quest_clues_ajax() {
                 closeEditClue();
                 // Refresh the clues list by reloading the current quest clues
                 refreshCluesList();
-                }
             } else {
                 alert('Error updating clue: ' + response.data);
                 saveBtn.disabled = false;
@@ -5083,13 +5105,24 @@ function puzzlepath_get_clue_ajax() {
     $clues_table = $wpdb->prefix . 'pp_clues';
     $clue_id = intval($_POST['clue_id']);
     
+    // Check if clues table exists
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$clues_table}'");
+    if (!$table_exists) {
+        wp_send_json_error('Clues table does not exist. Please contact administrator.');
+    }
+    
     $clue = $wpdb->get_row($wpdb->prepare(
         "SELECT * FROM {$clues_table} WHERE id = %d",
         $clue_id
     ));
     
+    if ($wpdb->last_error) {
+        error_log('PuzzlePath get_clue error: ' . $wpdb->last_error);
+        wp_send_json_error('Database error: ' . $wpdb->last_error);
+    }
+    
     if (!$clue) {
-        wp_send_json_error('Clue not found');
+        wp_send_json_error('Clue not found with ID: ' . $clue_id);
     }
     
     wp_send_json_success($clue);
@@ -5111,7 +5144,16 @@ function puzzlepath_save_clue_ajax() {
     global $wpdb;
     $clues_table = $wpdb->prefix . 'pp_clues';
     
+    // Check if clues table exists
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$clues_table}'");
+    if (!$table_exists) {
+        wp_send_json_error('Clues table does not exist. Please contact administrator.');
+    }
+    
     $clue_id = intval($_POST['clue_id']);
+    
+    // Log the data being saved for debugging
+    error_log('PuzzlePath save_clue: Updating clue ID ' . $clue_id . ' with data: ' . print_r($_POST, true));
     
     // Prepare data for update
     $data = [
@@ -5337,9 +5379,6 @@ function puzzlepath_quests_page() {
                             </td>
                             <td>
                                 <strong><?php echo $quest->clue_count; ?></strong> clues
-                                <?php if ($quest->total_clues && $quest->clue_count != $quest->total_clues): ?>
-                                    <br><small style="color: #d63638;">(Expected: <?php echo $quest->total_clues; ?>)</small>
-                                <?php endif; ?>
                             </td>
                             <td>
                                 <?php 
