@@ -399,7 +399,10 @@ function puzzlepath_generate_missing_hunt_codes() {
  * Centralized function to create all admin menus.
  */
 function puzzlepath_register_admin_menus() {
-    add_menu_page('PuzzlePath Bookings', 'PuzzlePath', 'manage_options', 'puzzlepath-booking', 'puzzlepath_events_page', 'dashicons-admin-tools', 20);
+    // Custom jigsaw puzzle SVG icon - simple and clean design
+    $puzzle_svg = 'data:image/svg+xml;base64,' . base64_encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M2 2h6v2.5a1.5 1.5 0 003 0V2h6a1 1 0 011 1v6h-2.5a1.5 1.5 0 000 3H18v6a1 1 0 01-1 1h-6v-2.5a1.5 1.5 0 00-3 0V19H2a1 1 0 01-1-1v-6h2.5a1.5 1.5 0 000-3H1V3a1 1 0 011-1z"/></svg>');
+    
+    add_menu_page('PuzzlePath Bookings', 'PuzzlePath', 'manage_options', 'puzzlepath-booking', 'puzzlepath_events_page', $puzzle_svg, 20);
     add_submenu_page('puzzlepath-booking', 'Bookings', 'Bookings', 'manage_options', 'puzzlepath-bookings', 'puzzlepath_bookings_page');
     add_submenu_page('puzzlepath-booking', 'Events', 'Events', 'manage_options', 'puzzlepath-events', 'puzzlepath_events_page');
     add_submenu_page('puzzlepath-booking', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
