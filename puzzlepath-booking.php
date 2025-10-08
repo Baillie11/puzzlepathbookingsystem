@@ -404,7 +404,7 @@ function puzzlepath_register_admin_menus() {
     
     add_menu_page('PuzzlePath Bookings', 'PuzzlePath', 'manage_options', 'puzzlepath-booking', 'puzzlepath_quests_page', $puzzle_svg, 20);
     add_submenu_page('puzzlepath-booking', 'Bookings', 'Bookings', 'manage_options', 'puzzlepath-bookings', 'puzzlepath_bookings_page');
-    add_submenu_page('puzzlepath-booking', 'Events & Quests', 'Events & Quests', 'manage_options', 'puzzlepath-quests', 'puzzlepath_quests_page');
+    add_submenu_page('puzzlepath-booking', 'Quests', 'Quests', 'manage_options', 'puzzlepath-quests', 'puzzlepath_quests_page');
     add_submenu_page('puzzlepath-booking', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
     add_submenu_page('puzzlepath-booking', 'Quest Import', 'Quest Import', 'edit_posts', 'puzzlepath-quest-import', 'puzzlepath_quest_import_page');
     add_submenu_page('puzzlepath-booking', 'Test Bookings', 'Test Bookings', 'manage_options', 'puzzlepath-test-bookings', 'puzzlepath_test_bookings_page');
@@ -6517,7 +6517,7 @@ function puzzlepath_email_settings_page() {
             
             <h3>Quick Links</h3>
             <p>
-                <a href="<?php echo admin_url('admin.php?page=puzzlepath-quests'); ?>" class="button">Manage Events & Quests</a>
+                <a href="<?php echo admin_url('admin.php?page=puzzlepath-quests'); ?>" class="button">Manage Quests</a>
                 <a href="<?php echo admin_url('admin.php?page=puzzlepath-coupons'); ?>" class="button">Manage Coupons</a>
                 <a href="<?php echo admin_url('admin.php?page=puzzlepath-stripe-settings'); ?>" class="button">Stripe Settings</a>
             </p>
