@@ -2258,7 +2258,8 @@ function puzzlepath_coupons_page() {
 // ========================= INCLUDES =========================
 
 // Load settings functions
-require_once plugin_dir_path(__FILE__) . 'includes/settings.php';
+// Settings functionality has been merged into this main file
+// require_once plugin_dir_path(__FILE__) . 'includes/settings.php';
 
 // ========================= STRIPE INTEGRATION =========================
 
