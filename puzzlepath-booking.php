@@ -5190,8 +5190,12 @@ function puzzlepath_save_clue_ajax() {
     if (isset($_POST['max_value']) && $_POST['max_value'] !== '') {
         $data['max_value'] = floatval($_POST['max_value']);
     }
+    // Handle answer_options JSON field properly
     if (isset($_POST['answer_options']) && $_POST['answer_options'] !== 'null' && trim($_POST['answer_options']) !== '') {
         $data['answer_options'] = $_POST['answer_options']; // Already JSON encoded from frontend
+    } else {
+        // Set to NULL for database when empty to avoid JSON validation errors
+        $data['answer_options'] = null;
     }
     if (isset($_POST['photo_required'])) {
         $data['photo_required'] = intval($_POST['photo_required']);
@@ -5307,8 +5311,12 @@ function puzzlepath_create_clue_ajax() {
     if (isset($_POST['max_value']) && $_POST['max_value'] !== '') {
         $data['max_value'] = floatval($_POST['max_value']);
     }
+    // Handle answer_options JSON field properly
     if (isset($_POST['answer_options']) && $_POST['answer_options'] !== 'null' && trim($_POST['answer_options']) !== '') {
         $data['answer_options'] = $_POST['answer_options']; // Already JSON encoded from frontend
+    } else {
+        // Set to NULL for database when empty to avoid JSON validation errors
+        $data['answer_options'] = null;
     }
     if (isset($_POST['photo_required'])) {
         $data['photo_required'] = intval($_POST['photo_required']);
