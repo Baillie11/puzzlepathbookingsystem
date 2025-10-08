@@ -246,6 +246,20 @@ function puzzlepath_update_db_check() {
 add_action('plugins_loaded', 'puzzlepath_update_db_check');
 
 /**
+ * Force payment status migration on next admin page load (run once)
+ */
+function puzzlepath_force_payment_migration() {
+    if (is_admin() && current_user_can('manage_options')) {
+        $migration_done = get_option('puzzlepath_payment_migration_2025', false);
+        if (!$migration_done) {
+            puzzlepath_update_payment_statuses();
+            update_option('puzzlepath_payment_migration_2025', true);
+        }
+    }
+}
+add_action('admin_init', 'puzzlepath_force_payment_migration');
+
+/**
  * Display admin notice after payment status migration
  */
 function puzzlepath_payment_migration_admin_notice() {
@@ -2202,7 +2216,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
 
             if ($booking && $booking->payment_status === 'pending') {
                 $wpdb->update($bookings_table, 
-                    ['payment_status' => 'succeeded'], 
+                    ['payment_status' => 'paid'], 
                     ['id' => $booking->id]
                 );
 
@@ -2337,7 +2351,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                     'tickets' => $tickets,
                     'total_price' => 0.00, // Free booking
                     'coupon_id' => $coupon_id,
-                    'payment_status' => 'succeeded', // Mark as succeeded since no payment needed
+                    'payment_status' => 'paid', // Mark as paid since booking is complete (free)
                     'booking_code' => $booking_code,
                     'booking_date' => current_time('mysql')
                 ];
@@ -2426,8 +2440,8 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
             if (!$booking) {
                 return new WP_REST_Response(['status' => 'pending'], 200);
             }
-            if ($booking->payment_status === 'succeeded' && $booking->booking_code) {
-                return new WP_REST_Response(['status' => 'succeeded', 'booking_code' => $booking->booking_code], 200);
+            if ($booking->payment_status === 'paid' && $booking->booking_code) {
+                return new WP_REST_Response(['status' => 'paid', 'booking_code' => $booking->booking_code], 200);
             }
             return new WP_REST_Response(['status' => $booking->payment_status], 200);
         }
