@@ -100,7 +100,7 @@ function puzzlepath_debug_events_page() {
             echo '<td><strong>' . esc_html($event->title) . '</strong></td>';
             echo '<td>' . $event->seats . '</td>';
             echo '<td>' . $status . '</td>';
-            echo '<td><a href="admin.php?page=puzzlepath-events&action=edit&event_id=' . $event->id . '">Edit</a></td>';
+            echo '<td><a href="admin.php?page=puzzlepath-quests&action=edit&event_id=' . $event->id . '">Edit</a></td>';
             echo '</tr>';
         }
         

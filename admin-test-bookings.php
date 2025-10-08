@@ -90,7 +90,7 @@ function puzzlepath_test_bookings_page() {
                             <div class="notice notice-warning inline">
                                 <p><strong>⚠️ No active quests found!</strong></p>
                                 <p>Make sure you have quests with available seats (seats > 0) in your events table.</p>
-                                <p><a href="<?php echo admin_url('admin.php?page=puzzlepath-events'); ?>">Manage Events</a></p>
+                                <p><a href="<?php echo admin_url('admin.php?page=puzzlepath-quests'); ?>">Manage Events & Quests</a></p>
                             </div>
                         <?php else: ?>
                             <table class="wp-list-table widefat fixed striped">

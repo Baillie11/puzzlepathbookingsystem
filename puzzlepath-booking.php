@@ -402,11 +402,10 @@ function puzzlepath_register_admin_menus() {
     // Custom jigsaw puzzle SVG icon - simple and clean design
     $puzzle_svg = 'data:image/svg+xml;base64,' . base64_encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M2 2h6v2.5a1.5 1.5 0 003 0V2h6a1 1 0 011 1v6h-2.5a1.5 1.5 0 000 3H18v6a1 1 0 01-1 1h-6v-2.5a1.5 1.5 0 00-3 0V19H2a1 1 0 01-1-1v-6h2.5a1.5 1.5 0 000-3H1V3a1 1 0 011-1z"/></svg>');
     
-    add_menu_page('PuzzlePath Bookings', 'PuzzlePath', 'manage_options', 'puzzlepath-booking', 'puzzlepath_events_page', $puzzle_svg, 20);
+    add_menu_page('PuzzlePath Bookings', 'PuzzlePath', 'manage_options', 'puzzlepath-booking', 'puzzlepath_quests_page', $puzzle_svg, 20);
     add_submenu_page('puzzlepath-booking', 'Bookings', 'Bookings', 'manage_options', 'puzzlepath-bookings', 'puzzlepath_bookings_page');
-    add_submenu_page('puzzlepath-booking', 'Events', 'Events', 'manage_options', 'puzzlepath-events', 'puzzlepath_events_page');
+    add_submenu_page('puzzlepath-booking', 'Events & Quests', 'Events & Quests', 'manage_options', 'puzzlepath-quests', 'puzzlepath_quests_page');
     add_submenu_page('puzzlepath-booking', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
-    add_submenu_page('puzzlepath-booking', 'Quests', 'Quests', 'manage_options', 'puzzlepath-quests', 'puzzlepath_quests_page');
     add_submenu_page('puzzlepath-booking', 'Quest Import', 'Quest Import', 'edit_posts', 'puzzlepath-quest-import', 'puzzlepath_quest_import_page');
     add_submenu_page('puzzlepath-booking', 'Test Bookings', 'Test Bookings', 'manage_options', 'puzzlepath-test-bookings', 'puzzlepath_test_bookings_page');
     add_submenu_page('puzzlepath-booking', 'Email Settings', 'Email Settings', 'manage_options', 'puzzlepath-email-settings', 'puzzlepath_email_settings_page');
@@ -1357,7 +1356,7 @@ function puzzlepath_handle_event_save() {
         check_admin_referer('puzzlepath_save_event', 'puzzlepath_event_nonce');
     } catch (Exception $e) {
         set_transient('puzzlepath_event_save_error', 'Security check failed', 30);
-        wp_safe_redirect(admin_url('admin.php?page=puzzlepath-events&message=error'));
+        wp_safe_redirect(admin_url('admin.php?page=puzzlepath-quests&message=error'));
         exit;
     }
 
@@ -1419,280 +1418,15 @@ function puzzlepath_handle_event_save() {
 
     if ($result === false) {
         set_transient('puzzlepath_event_save_error', $wpdb->last_error ?: 'Unknown database error', 30);
-        wp_safe_redirect(admin_url('admin.php?page=puzzlepath-events&message=error'));
+        wp_safe_redirect(admin_url('admin.php?page=puzzlepath-quests&message=error'));
         exit;
     }
 
-    wp_safe_redirect(admin_url('admin.php?page=puzzlepath-events&message=1'));
+    wp_safe_redirect(admin_url('admin.php?page=puzzlepath-quests&message=1'));
     exit;
 }
 add_action('admin_post_puzzlepath_save_event', 'puzzlepath_handle_event_save');
 
-/**
- * Display the main page for managing events.
- */
-function puzzlepath_events_page() {
-    global $wpdb;
-    $table_name = 'wp2s_pp_events';
-
-    // Ensure all required columns exist (safety if activation didn't add them)
-    puzzlepath_ensure_events_columns($table_name);
-
-    // Enqueue media library for image upload button on this admin page
-    if (function_exists('wp_enqueue_media')) {
-        wp_enqueue_media();
-    }
-    wp_enqueue_script('jquery');
-
-    // Handle event deletion
-    if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['event_id'])) {
-        if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'puzzlepath_delete_event_' . $_GET['event_id'])) {
-            wp_die('Security check failed.');
-        }
-        $id = intval($_GET['event_id']);
-        $wpdb->delete($table_name, ['id' => $id]);
-        wp_redirect(admin_url('admin.php?page=puzzlepath-events&message=2'));
-        exit;
-    }
-
-    $edit_event = null;
-    if (isset($_GET['action']) && $_GET['action'] == 'edit' && isset($_GET['event_id'])) {
-        $edit_event = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", intval($_GET['event_id'])));
-    }
-    ?>
-    <div class="wrap">
-        <h1>Events</h1>
-
-        <?php if (isset($_GET['message'])): ?>
-            <?php if ($_GET['message'] == 'error'): ?>
-                <?php $err = get_transient('puzzlepath_event_save_error'); delete_transient('puzzlepath_event_save_error'); ?>
-                <div class="notice notice-error is-dismissible">
-                    <p><strong>Event save failed:</strong> <?php echo esc_html($err ?: 'Unknown error'); ?></p>
-                </div>
-            <?php else: ?>
-                <div class="notice notice-success is-dismissible">
-                    <p><?php echo $_GET['message'] == 1 ? 'Event saved successfully.' : 'Event deleted successfully.'; ?></p>
-                </div>
-            <?php endif; ?>
-        <?php endif; ?>
-
-        <h2><?php echo $edit_event ? 'Edit Event' : 'Add New Event'; ?></h2>
-        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-            <input type="hidden" name="action" value="puzzlepath_save_event" />
-            <input type="hidden" name="event_id" value="<?php echo $edit_event ? esc_attr($edit_event->id) : ''; ?>">
-            <?php wp_nonce_field('puzzlepath_save_event', 'puzzlepath_event_nonce'); ?>
-            <table class="form-table">
-                <tr>
-                    <th scope="row"><label for="title">Title</label></th>
-                    <td><input type="text" name="title" id="title" value="<?php echo $edit_event ? esc_attr($edit_event->title) : ''; ?>" class="regular-text" required></td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="hunt_code">Hunt Code</label></th>
-                    <td>
-                        <input type="text" name="hunt_code" id="hunt_code" value="<?php echo $edit_event ? esc_attr($edit_event->hunt_code) : ''; ?>" class="small-text" maxlength="10">
-                        <p class="description">Hunt code for unified app integration (e.g., BB, EP, etc.)</p>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="hunt_name">Hunt Name</label></th>
-                    <td>
-                        <input type="text" name="hunt_name" id="hunt_name" value="<?php echo $edit_event ? esc_attr($edit_event->hunt_name) : ''; ?>" class="regular-text">
-                        <p class="description">Descriptive hunt name (e.g., "Brisbane City Hunt", "Escape the Prison")</p>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="hosting_type">Hosting Type</label></th>
-                    <td>
-                        <select name="hosting_type" id="hosting_type">
-                            <option value="hosted" <?php selected($edit_event ? $edit_event->hosting_type : '', 'hosted'); ?>>Hosted</option>
-                            <option value="self_hosted" <?php selected($edit_event ? $edit_event->hosting_type : '', 'self_hosted'); ?>>Self Hosted (App)</option>
-                        </select>
-                    </td>
-                </tr>
-                <tr id="event_date_row">
-                    <th scope="row"><label for="event_date">Event Date</label></th>
-                    <td><input type="datetime-local" name="event_date" id="event_date" value="<?php echo $edit_event && $edit_event->event_date ? date('Y-m-d\TH:i', strtotime($edit_event->event_date)) : ''; ?>"></td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="location">Location</label></th>
-                    <td><input type="text" name="location" id="location" value="<?php echo $edit_event ? esc_attr($edit_event->location) : ''; ?>" class="regular-text" required></td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="price">Price</label></th>
-                    <td><input type="number" step="0.01" name="price" id="price" value="<?php echo $edit_event ? esc_attr($edit_event->price) : ''; ?>" class="small-text" required></td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="seats">Seats</label></th>
-                    <td><input type="number" name="seats" id="seats" value="<?php echo $edit_event ? esc_attr($edit_event->seats) : ''; ?>" class="small-text" required></td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="display_on_site">Display on Booking Form</label></th>
-                    <td>
-                        <label><input type="checkbox" name="display_on_site" id="display_on_site" value="1" <?php echo ($edit_event && $edit_event->display_on_site) ? 'checked' : ''; ?>> Show this quest in the public booking form</label>
-                        <p class="description">When checked, this quest will appear in the public booking form dropdown.</p>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="quest_type">Quest Type</label></th>
-                    <td>
-                        <select name="quest_type" id="quest_type">
-                            <option value="walking" <?php selected($edit_event ? $edit_event->quest_type : 'walking', 'walking'); ?>>Walking Quest 🚶‍♂️</option>
-                            <option value="driving" <?php selected($edit_event ? $edit_event->quest_type : 'walking', 'driving'); ?>>Driving Quest 🚗</option>
-                        </select>
-                        <p class="description">Specify whether this is a walking or driving quest.</p>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="difficulty">Difficulty Level</label></th>
-                    <td>
-                        <select name="difficulty" id="difficulty">
-                            <option value="easy" <?php selected($edit_event ? $edit_event->difficulty : 'easy', 'easy'); ?>>Easy (Family-Friendly)</option>
-                            <option value="moderate" <?php selected($edit_event ? $edit_event->difficulty : 'easy', 'moderate'); ?>>Moderate (Fun for Adults & Families)</option>
-                            <option value="hard" <?php selected($edit_event ? $edit_event->difficulty : 'easy', 'hard'); ?>>Hard (Challenge Mode)</option>
-                        </select>
-                        <p class="description">Select the difficulty level for this quest.</p>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="quest_description">Quest Description</label></th>
-                    <td>
-                        <textarea name="quest_description" id="quest_description" rows="3" class="large-text"><?php echo $edit_event ? esc_textarea($edit_event->quest_description) : ''; ?></textarea>
-                        <p class="description">Brief description of the quest adventure (displayed on adventures page).</p>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="display_on_adventures_page">Display on Adventures Page</label></th>
-                    <td>
-                        <label><input type="checkbox" name="display_on_adventures_page" id="display_on_adventures_page" value="1" <?php echo ($edit_event && $edit_event->display_on_adventures_page) ? 'checked' : ''; ?>> Show this quest on the adventures page</label>
-                        <p class="description">When checked, this quest will appear in the adventures page auto-populated section.</p>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row"><label for="quest_image_url">Quest Image URL</label></th>
-                    <td>
-                        <input type="url" name="quest_image_url" id="quest_image_url" value="<?php echo $edit_event ? esc_attr($edit_event->quest_image_url) : ''; ?>" class="regular-text" placeholder="https://example.com/your-image.jpg">
-                        <button type="button" class="button" id="quest_image_upload_btn">Select/Upload Image</button>
-                        <button type="button" class="button" id="quest_image_clear_btn">Clear</button>
-                        <div id="quest_image_preview" style="margin-top:10px;">
-                            <?php if ($edit_event && !empty($edit_event->quest_image_url)) : ?>
-                                <img src="<?php echo esc_url($edit_event->quest_image_url); ?>" style="max-width:300px;height:auto;border:1px solid #ddd;border-radius:6px;" />
-                            <?php endif; ?>
-                        </div>
-                        <p class="description">Optional: Custom hero image for this quest (leave blank to use the default Puzzle Path logo). You can paste a URL or click Select/Upload to choose from the Media Library.</p>
-                    </td>
-                </tr>
-            </table>
-            <?php submit_button($edit_event ? 'Update Event' : 'Add Event'); ?>
-        </form>
-
-        <hr/>
-        
-        <h2>All Events</h2>
-        <table class="wp-list-table widefat fixed striped">
-            <thead>
-                <tr>
-                    <th>Title</th>
-                    <th>Hunt</th>
-                    <th>Type/Difficulty</th>
-                    <th>Event Date</th>
-                    <th>Location</th>
-                    <th>Price</th>
-                    <th>Seats Left</th>
-                    <th>Booking Form</th>
-                    <th>Adventures Page</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php
-                $events = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
-                foreach ($events as $event) {
-                    echo '<tr>';
-                    echo '<td>' . esc_html($event->title) . '</td>';
-                    $hunt_display = '';
-                    if (!empty($event->hunt_name)) {
-                        $hunt_display = esc_html($event->hunt_name);
-                        if (!empty($event->hunt_code)) {
-                            $hunt_display .= ' (' . esc_html($event->hunt_code) . ')';
-                        }
-                    } elseif (!empty($event->hunt_code)) {
-                        $hunt_display = esc_html($event->hunt_code);
-                    } else {
-                        $hunt_display = 'N/A';
-                    }
-                    echo '<td>' . $hunt_display . '</td>';
-                    
-                    // Quest type and difficulty column (defensive defaults)
-                    $qtype = isset($event->quest_type) && $event->quest_type ? $event->quest_type : 'walking';
-                    $diff = isset($event->difficulty) && $event->difficulty ? $event->difficulty : 'easy';
-                    $type_icon = ($qtype === 'driving') ? '🚗' : '🚶‍♂️';
-                    $type_text = ucfirst($qtype);
-                    $difficulty_text = ucfirst($diff);
-                    echo '<td>' . $type_icon . ' ' . $type_text . '<br/><small>' . $difficulty_text . '</small></td>';
-                    
-                    echo '<td>' . ($event->event_date ? date('F j, Y, g:i a', strtotime($event->event_date)) : 'N/A') . '</td>';
-                    echo '<td>' . esc_html($event->location) . '</td>';
-                    echo '<td>$' . number_format($event->price, 2) . '</td>';
-                    echo '<td>' . esc_html($event->seats) . '</td>';
-                    
-                    // Display on booking form status
-                    echo '<td>' . ($event->display_on_site ? '<span style="color: green;">✓ Visible</span>' : '<span style="color: red;">✗ Hidden</span>') . '</td>';
-                    
-                    // Display on adventures page status
-                    $show_adv = isset($event->display_on_adventures_page) ? intval($event->display_on_adventures_page) : 0;
-                    echo '<td>' . ($show_adv ? '<span style=\"color: green;\">✓ Visible</span>' : '<span style=\"color: red;\">✗ Hidden</span>') . '</td>';
-                    echo '<td>';
-                    echo '<a href="' . admin_url('admin.php?page=puzzlepath-events&action=edit&event_id=' . $event->id) . '">Edit</a> | ';
-                    $delete_nonce = wp_create_nonce('puzzlepath_delete_event_' . $event->id);
-                    echo '<a href="' . admin_url('admin.php?page=puzzlepath-events&action=delete&event_id=' . $event->id . '&_wpnonce=' . $delete_nonce) . '" onclick="return confirm(\'Are you sure you want to delete this event?\')">Delete</a>';
-                    echo '</td>';
-                    echo '</tr>';
-                }
-                ?>
-            </tbody>
-        </table>
-    </div>
-    <script>
-    jQuery(document).ready(function($) {
-        function toggleEventDate() {
-            if ($('#hosting_type').val() === 'hosted') {
-                $('#event_date_row').show();
-            } else {
-                $('#event_date_row').hide();
-            }
-        }
-        toggleEventDate();
-        $('#hosting_type').on('change', toggleEventDate);
-
-        // WordPress media uploader for Quest Image URL
-        var questImageFrame;
-        $('#quest_image_upload_btn').on('click', function(e) {
-            e.preventDefault();
-            if (questImageFrame) {
-                questImageFrame.open();
-                return;
-            }
-            questImageFrame = wp.media({
-                title: 'Select or Upload Quest Image',
-                button: { text: 'Use this image' },
-                multiple: false
-            });
-            questImageFrame.on('select', function() {
-                var attachment = questImageFrame.state().get('selection').first().toJSON();
-                $('#quest_image_url').val(attachment.url);
-                $('#quest_image_preview').html('<img src="' + attachment.url + '" style="max-width:300px;height:auto;border:1px solid #ddd;border-radius:6px;" />');
-            });
-            questImageFrame.open();
-        });
-
-        $('#quest_image_clear_btn').on('click', function() {
-            $('#quest_image_url').val('');
-            $('#quest_image_preview').empty();
-        });
-    });
-    </script>
-    <?php
-}
 
 // Include test bookings admin functionality
 require_once plugin_dir_path(__FILE__) . 'admin-test-bookings.php';
@@ -6827,7 +6561,7 @@ function puzzlepath_email_settings_page() {
             
             <h3>Quick Links</h3>
             <p>
-                <a href="<?php echo admin_url('admin.php?page=puzzlepath-events'); ?>" class="button">Manage Events</a>
+                <a href="<?php echo admin_url('admin.php?page=puzzlepath-quests'); ?>" class="button">Manage Events & Quests</a>
                 <a href="<?php echo admin_url('admin.php?page=puzzlepath-coupons'); ?>" class="button">Manage Coupons</a>
                 <a href="<?php echo admin_url('admin.php?page=puzzlepath-stripe-settings'); ?>" class="button">Stripe Settings</a>
             </p>
