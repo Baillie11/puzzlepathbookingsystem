@@ -220,8 +220,19 @@ class PuzzlePath_Stripe_Integration {
             $event_title = $event->title;
             $event_date = $event->event_date;
         }
-        $message = "Dear {$booking->customer_name},\n\nThank you for your booking!\n\nBooking Details:\nEvent: {$event_title}\nDate: {$event_date}\nPrice: ".$booking->total_price."\nBooking Code: {$booking_code}\n\nRegards,\nPuzzlePath Team";
+        
+        // Set custom email filters before sending
+        add_filter('wp_mail_from', 'puzzlepath_get_sender_email');
+        add_filter('wp_mail_from_name', 'puzzlepath_get_sender_name');
+        
+        $sender_name = puzzlepath_get_sender_name();
+        $message = "Dear {$booking->customer_name},\n\nThank you for your booking!\n\nBooking Details:\nEvent: {$event_title}\nDate: {$event_date}\nPrice: $".$booking->total_price."\nBooking Code: {$booking_code}\n\nRegards,\n{$sender_name}";
+        
         wp_mail($to, $subject, $message);
+        
+        // Remove email filters to avoid affecting other emails
+        remove_filter('wp_mail_from', 'puzzlepath_get_sender_email');
+        remove_filter('wp_mail_from_name', 'puzzlepath_get_sender_name');
     }
 
     /**

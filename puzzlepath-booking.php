@@ -399,13 +399,14 @@ function puzzlepath_generate_missing_hunt_codes() {
  * Centralized function to create all admin menus.
  */
 function puzzlepath_register_admin_menus() {
-    add_menu_page('PuzzlePath Bookings', 'PuzzlePath', 'manage_options', 'puzzlepath-booking', 'puzzlepath_events_page', 'dashicons-tickets-alt', 20);
+    add_menu_page('PuzzlePath Bookings', 'PuzzlePath', 'manage_options', 'puzzlepath-booking', 'puzzlepath_events_page', 'dashicons-admin-tools', 20);
     add_submenu_page('puzzlepath-booking', 'Bookings', 'Bookings', 'manage_options', 'puzzlepath-bookings', 'puzzlepath_bookings_page');
     add_submenu_page('puzzlepath-booking', 'Events', 'Events', 'manage_options', 'puzzlepath-events', 'puzzlepath_events_page');
     add_submenu_page('puzzlepath-booking', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
     add_submenu_page('puzzlepath-booking', 'Quests', 'Quests', 'manage_options', 'puzzlepath-quests', 'puzzlepath_quests_page');
     add_submenu_page('puzzlepath-booking', 'Quest Import', 'Quest Import', 'edit_posts', 'puzzlepath-quest-import', 'puzzlepath_quest_import_page');
     add_submenu_page('puzzlepath-booking', 'Test Bookings', 'Test Bookings', 'manage_options', 'puzzlepath-test-bookings', 'puzzlepath_test_bookings_page');
+    add_submenu_page('puzzlepath-booking', 'Email Settings', 'Email Settings', 'manage_options', 'puzzlepath-email-settings', 'puzzlepath_email_settings_page');
     add_submenu_page('puzzlepath-booking', 'Settings', 'Settings', 'manage_options', 'puzzlepath-settings', 'puzzlepath_settings_page');
     if (class_exists('PuzzlePath_Stripe_Integration')) {
         $stripe_instance = PuzzlePath_Stripe_Integration::get_instance();
@@ -5170,6 +5171,32 @@ function puzzlepath_save_clue_ajax() {
         'is_active' => isset($_POST['is_active']) ? 1 : 0
     ];
     
+    // Add new fields if they exist in the table structure
+    if (isset($_POST['required_answer'])) {
+        $data['required_answer'] = sanitize_text_field($_POST['required_answer']);
+    }
+    if (isset($_POST['input_type'])) {
+        $data['input_type'] = sanitize_text_field($_POST['input_type']);
+    }
+    if (isset($_POST['is_case_sensitive'])) {
+        $data['is_case_sensitive'] = intval($_POST['is_case_sensitive']);
+    }
+    if (isset($_POST['min_value']) && $_POST['min_value'] !== '') {
+        $data['min_value'] = floatval($_POST['min_value']);
+    }
+    if (isset($_POST['max_value']) && $_POST['max_value'] !== '') {
+        $data['max_value'] = floatval($_POST['max_value']);
+    }
+    if (isset($_POST['answer_options']) && $_POST['answer_options'] !== 'null' && trim($_POST['answer_options']) !== '') {
+        $data['answer_options'] = $_POST['answer_options']; // Already JSON encoded from frontend
+    }
+    if (isset($_POST['photo_required'])) {
+        $data['photo_required'] = intval($_POST['photo_required']);
+    }
+    if (isset($_POST['auto_advance'])) {
+        $data['auto_advance'] = intval($_POST['auto_advance']);
+    }
+    
     $result = $wpdb->update($clues_table, $data, ['id' => $clue_id]);
     
     if ($result === false) {
@@ -5179,6 +5206,131 @@ function puzzlepath_save_clue_ajax() {
     wp_send_json_success('Clue updated successfully');
 }
 add_action('wp_ajax_save_clue', 'puzzlepath_save_clue_ajax');
+
+/**
+ * AJAX handler to create new clue
+ */
+function puzzlepath_create_clue_ajax() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+    }
+    
+    if (!isset($_POST['hunt_id']) || !wp_verify_nonce($_POST['nonce'], 'create_clue_nonce')) {
+        wp_send_json_error('Invalid request');
+    }
+    
+    global $wpdb;
+    $clues_table = $wpdb->prefix . 'pp_clues';
+    
+    // Check if clues table exists
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$clues_table}'");
+    if (!$table_exists) {
+        wp_send_json_error('Clues table does not exist. Please contact administrator.');
+    }
+    
+    $hunt_id = intval($_POST['hunt_id']);
+    
+    // Validate required fields - check for required_answer first, then fall back to answer
+    $required_answer = !empty($_POST['required_answer']) ? $_POST['required_answer'] : $_POST['answer'];
+    if (empty($_POST['clue_text']) || empty($required_answer)) {
+        wp_send_json_error('Clue text and required answer are required');
+    }
+    
+    // Get requested clue order
+    $clue_order = intval($_POST['clue_order']);
+    if ($clue_order <= 0) {
+        // Auto-determine next clue order if not provided
+        $max_order = $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(clue_order) FROM {$clues_table} WHERE hunt_id = %d",
+            $hunt_id
+        ));
+        $clue_order = ($max_order ? $max_order : 0) + 1;
+    } else {
+        // Check if this order already exists - if so, we need to reorder existing clues
+        $existing_clue = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$clues_table} WHERE hunt_id = %d AND clue_order = %d",
+            $hunt_id, $clue_order
+        ));
+        
+        if ($existing_clue) {
+            // Reorder existing clues: increment clue_order for all clues >= requested order
+            $reorder_result = $wpdb->query($wpdb->prepare(
+                "UPDATE {$clues_table} SET clue_order = clue_order + 1 WHERE hunt_id = %d AND clue_order >= %d",
+                $hunt_id, $clue_order
+            ));
+            
+            if ($reorder_result === false) {
+                wp_send_json_error('Failed to reorder existing clues: ' . $wpdb->last_error);
+            }
+            
+            // Log the reordering action
+            error_log('PuzzlePath create_clue: Reordered ' . $reorder_result . ' existing clues to make room for new clue at position ' . $clue_order);
+        }
+    }
+    
+    // Log the data being saved for debugging
+    error_log('PuzzlePath create_clue: Creating new clue for hunt ID ' . $hunt_id . ' with data: ' . print_r($_POST, true));
+    
+    // Prepare data for insert
+    $data = [
+        'hunt_id' => $hunt_id,
+        'clue_order' => $clue_order,
+        'title' => sanitize_text_field($_POST['title']),
+        'clue_text' => sanitize_textarea_field($_POST['clue_text']),
+        'task_description' => sanitize_textarea_field($_POST['task_description']),
+        'hint_text' => sanitize_textarea_field($_POST['hint_text']),
+        'answer' => sanitize_text_field($_POST['answer']),
+        'latitude' => !empty($_POST['latitude']) ? floatval($_POST['latitude']) : null,
+        'longitude' => !empty($_POST['longitude']) ? floatval($_POST['longitude']) : null,
+        'geofence_radius' => !empty($_POST['geofence_radius']) ? intval($_POST['geofence_radius']) : null,
+        'image_url' => !empty($_POST['image_url']) ? esc_url_raw($_POST['image_url']) : null,
+        'is_active' => isset($_POST['is_active']) ? 1 : 0,
+        'created_at' => current_time('mysql')
+    ];
+    
+    // Add new fields if they exist in the table structure
+    if (isset($_POST['required_answer'])) {
+        $data['required_answer'] = sanitize_text_field($_POST['required_answer']);
+    }
+    if (isset($_POST['input_type'])) {
+        $data['input_type'] = sanitize_text_field($_POST['input_type']);
+    }
+    if (isset($_POST['is_case_sensitive'])) {
+        $data['is_case_sensitive'] = intval($_POST['is_case_sensitive']);
+    }
+    if (isset($_POST['min_value']) && $_POST['min_value'] !== '') {
+        $data['min_value'] = floatval($_POST['min_value']);
+    }
+    if (isset($_POST['max_value']) && $_POST['max_value'] !== '') {
+        $data['max_value'] = floatval($_POST['max_value']);
+    }
+    if (isset($_POST['answer_options']) && $_POST['answer_options'] !== 'null' && trim($_POST['answer_options']) !== '') {
+        $data['answer_options'] = $_POST['answer_options']; // Already JSON encoded from frontend
+    }
+    if (isset($_POST['photo_required'])) {
+        $data['photo_required'] = intval($_POST['photo_required']);
+    }
+    if (isset($_POST['auto_advance'])) {
+        $data['auto_advance'] = intval($_POST['auto_advance']);
+    }
+    
+    $result = $wpdb->insert($clues_table, $data);
+    
+    if ($result === false) {
+        wp_send_json_error('Database error: ' . $wpdb->last_error);
+    }
+    
+    $new_clue_id = $wpdb->insert_id;
+    
+    // Provide detailed success message
+    $success_message = 'Clue created successfully';
+    if (isset($reorder_result) && $reorder_result > 0) {
+        $success_message .= '. ' . $reorder_result . ' existing clue(s) were automatically renumbered.';
+    }
+    
+    wp_send_json_success(['message' => $success_message, 'clue_id' => $new_clue_id, 'reordered_count' => isset($reorder_result) ? $reorder_result : 0]);
+}
+add_action('wp_ajax_create_clue', 'puzzlepath_create_clue_ajax');
 
 /**
  * Quest Management Page
@@ -5620,9 +5772,62 @@ function puzzlepath_quests_page() {
                     <textarea id="edit-hint-text" style="width: 100%; height: 60px; padding: 5px; margin-top: 5px; resize: vertical;">${clue.hint_text || ''}</textarea>
                 </div>
                 
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <label for="edit-answer"><strong>Answer:</strong> <span style="color: #666;">(for reference)</span></label>
+                        <input type="text" id="edit-answer" value="${clue.answer || ''}" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="Answer description or hint">
+                    </div>
+                    <div>
+                        <label for="edit-required-answer"><strong>Required Answer:</strong> <span style="color: #d63638;">*</span></label>
+                        <input type="text" id="edit-required-answer" value="${clue.required_answer || clue.answer || ''}" style="width: 100%; padding: 5px; margin-top: 5px;" required placeholder="Exact answer participants must provide">
+                    </div>
+                </div>
+                
                 <div style="margin-bottom: 15px;">
-                    <label for="edit-answer"><strong>Answer:</strong></label>
-                    <input type="text" id="edit-answer" value="${clue.answer || ''}" style="width: 100%; padding: 5px; margin-top: 5px;" required>
+                    <label for="edit-input-type"><strong>Input Type:</strong></label>
+                    <select id="edit-input-type" style="width: 100%; padding: 5px; margin-top: 5px;" onchange="toggleEditInputOptions()">
+                        <option value="none" ${(clue.input_type || 'none') === 'none' ? 'selected' : ''}>None (Just mark as complete)</option>
+                        <option value="text" ${clue.input_type === 'text' ? 'selected' : ''}>Text Input</option>
+                        <option value="number" ${clue.input_type === 'number' ? 'selected' : ''}>Number Input</option>
+                        <option value="multiple_choice" ${clue.input_type === 'multiple_choice' ? 'selected' : ''}>Multiple Choice</option>
+                        <option value="photo" ${clue.input_type === 'photo' ? 'selected' : ''}>Photo Upload</option>
+                    </select>
+                </div>
+                
+                <div id="edit-text-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
+                    <label style="display: flex; align-items: center;">
+                        <input type="checkbox" id="edit-is-case-sensitive" ${clue.is_case_sensitive ? 'checked' : ''} style="margin-right: 8px;">
+                        <span style="font-weight: bold;">Case Sensitive Answer</span>
+                    </label>
+                </div>
+                
+                <div id="edit-number-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <label><strong>Min Value:</strong></label>
+                            <input type="number" id="edit-min-value" value="${clue.min_value || ''}" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="Minimum allowed">
+                        </div>
+                        <div>
+                            <label><strong>Max Value:</strong></label>
+                            <input type="number" id="edit-max-value" value="${clue.max_value || ''}" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="Maximum allowed">
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="edit-multiple-choice-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
+                    <label><strong>Answer Options:</strong> <small>(format: A: First option\nB: Second option)</small></label>
+                    <textarea id="edit-answer-options" style="width: 100%; height: 80px; padding: 5px; margin-top: 5px; resize: vertical;" placeholder="A: First option\nB: Second option\nC: Third option">${clue.answer_options ? Object.entries(JSON.parse(clue.answer_options) || {}).map(([k,v]) => k + ': ' + v).join('\n') : ''}</textarea>
+                </div>
+                
+                <div id="edit-photo-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
+                    <label style="display: flex; align-items: center;">
+                        <input type="checkbox" id="edit-photo-required" ${clue.photo_required ? 'checked' : ''} style="margin-right: 8px;">
+                        <span style="font-weight: bold;">Photo Required</span>
+                    </label>
+                    <label style="display: flex; align-items: center; margin-top: 10px;">
+                        <input type="checkbox" id="edit-auto-advance" ${clue.auto_advance ? 'checked' : ''} style="margin-right: 8px;">
+                        <span style="font-weight: bold;">Auto Advance (proceed to next clue automatically)</span>
+                    </label>
                 </div>
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 15px;">
@@ -5662,6 +5867,11 @@ function puzzlepath_quests_page() {
         `;
         
         document.getElementById('edit-clue-content').innerHTML = formHtml;
+        
+        // Initialize the input type options display
+        setTimeout(function() {
+            toggleEditInputOptions();
+        }, 100);
     }
     
     function saveClueChanges() {
@@ -5683,9 +5893,11 @@ function puzzlepath_quests_page() {
             return;
         }
         
-        if (!answer) {
-            alert('Answer is required');
-            document.getElementById('edit-answer').focus();
+        var requiredAnswer = document.getElementById('edit-required-answer').value.trim();
+        
+        if (!requiredAnswer) {
+            alert('Required Answer is required');
+            document.getElementById('edit-required-answer').focus();
             return;
         }
         
@@ -5706,6 +5918,23 @@ function puzzlepath_quests_page() {
         saveBtn.disabled = true;
         saveBtn.textContent = 'Saving...';
         
+        // Process answer options for multiple choice
+        var answerOptions = null;
+        if (document.getElementById('edit-input-type').value === 'multiple_choice') {
+            var optionsText = document.getElementById('edit-answer-options').value.trim();
+            if (optionsText) {
+                var options = {};
+                optionsText.split('\n').forEach(function(line) {
+                    line = line.trim();
+                    if (line && line.includes(':')) {
+                        var parts = line.split(':', 2);
+                        options[parts[0].trim()] = parts[1].trim();
+                    }
+                });
+                answerOptions = JSON.stringify(options);
+            }
+        }
+        
         var formData = {
             action: 'save_clue',
             clue_id: document.getElementById('edit-clue-id').value,
@@ -5715,6 +5944,14 @@ function puzzlepath_quests_page() {
             task_description: document.getElementById('edit-task-description').value,
             hint_text: document.getElementById('edit-hint-text').value,
             answer: document.getElementById('edit-answer').value,
+            required_answer: document.getElementById('edit-required-answer').value,
+            input_type: document.getElementById('edit-input-type').value,
+            is_case_sensitive: document.getElementById('edit-is-case-sensitive') ? (document.getElementById('edit-is-case-sensitive').checked ? 1 : 0) : 0,
+            min_value: document.getElementById('edit-min-value') ? document.getElementById('edit-min-value').value : '',
+            max_value: document.getElementById('edit-max-value') ? document.getElementById('edit-max-value').value : '',
+            answer_options: answerOptions,
+            photo_required: document.getElementById('edit-photo-required') ? (document.getElementById('edit-photo-required').checked ? 1 : 0) : 0,
+            auto_advance: document.getElementById('edit-auto-advance') ? (document.getElementById('edit-auto-advance').checked ? 1 : 0) : 0,
             latitude: document.getElementById('edit-latitude').value,
             longitude: document.getElementById('edit-longitude').value,
             geofence_radius: document.getElementById('edit-geofence-radius').value,
@@ -5774,7 +6011,365 @@ function puzzlepath_quests_page() {
     }
     
     function addNewClue(huntCode) {
-        alert('Add New Clue functionality coming soon for hunt: ' + huntCode);
+        // We need to find the quest ID from the manage clues modal
+        // First try to get it from the URL match in the modal content
+        var questContent = document.getElementById('manage-clues-content').innerHTML;
+        var questIdMatch = questContent.match(/manageClues\((\d+)\)/);
+        
+        if (questIdMatch) {
+            var huntId = questIdMatch[1];
+            showAddClueForm(huntId, huntCode);
+            return;
+        }
+        
+        // Fallback: try to extract from existing clue data
+        var clueButton = document.querySelector('[onclick*="editClue"]');
+        if (clueButton) {
+            // Get the hunt_id from existing clue data by making a quick AJAX call
+            var clueId = clueButton.getAttribute('onclick').match(/editClue\((\d+)\)/)[1];
+            
+            jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', {
+                action: 'get_clue',
+                clue_id: clueId,
+                nonce: '<?php echo wp_create_nonce('edit_clue_nonce'); ?>'
+            }, function(response) {
+                if (response.success) {
+                    showAddClueForm(response.data.hunt_id, huntCode);
+                } else {
+                    alert('Error: Could not determine quest ID');
+                }
+            });
+            return;
+        }
+        
+        // Last resort: ask user to refresh
+        alert('Error: Could not determine quest ID. Please close and reopen the Manage Clues modal.');
+    }
+    
+    function showAddClueForm(huntId, huntCode) {
+        document.getElementById('add-clue-modal').style.display = 'block';
+        
+        // Get next clue order number
+        var clueItems = document.querySelectorAll('.clue-item');
+        var maxOrder = 0;
+        clueItems.forEach(function(item) {
+            var orderMatch = item.innerHTML.match(/Clue #(\d+)/);
+            if (orderMatch) {
+                maxOrder = Math.max(maxOrder, parseInt(orderMatch[1]));
+            }
+        });
+        var nextOrder = maxOrder + 1;
+        
+        var formHtml = `
+            <h2 style="margin: 0 0 20px 0; padding-right: 40px;">Add New Clue #${nextOrder}</h2>
+            
+            <form id="add-clue-form">
+                <input type="hidden" id="add-hunt-id" value="${huntId}">
+                <input type="hidden" id="add-hunt-code" value="${huntCode}">
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                    <div>
+                        <label for="add-clue-order"><strong>Clue Order:</strong></label>
+                        <input type="number" id="add-clue-order" value="${nextOrder}" min="1" style="width: 100%; padding: 5px; margin-top: 5px;" required>
+                    </div>
+                    
+                    <div>
+                        <label for="add-clue-title"><strong>Title:</strong></label>
+                        <input type="text" id="add-clue-title" value="" style="width: 100%; padding: 5px; margin-top: 5px;">
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="add-clue-text"><strong>Clue Text:</strong> <span style="color: #d63638;">*</span></label>
+                    <textarea id="add-clue-text" style="width: 100%; height: 100px; padding: 5px; margin-top: 5px; resize: vertical;" required placeholder="Enter the clue text that participants will see..."></textarea>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="add-task-description"><strong>Task Description:</strong></label>
+                    <textarea id="add-task-description" style="width: 100%; height: 80px; padding: 5px; margin-top: 5px; resize: vertical;" placeholder="Optional: Describe what participants need to do..."></textarea>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="add-hint-text"><strong>Hint Text:</strong></label>
+                    <textarea id="add-hint-text" style="width: 100%; height: 60px; padding: 5px; margin-top: 5px; resize: vertical;" placeholder="Optional: Provide a hint if participants get stuck..."></textarea>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <label for="add-answer"><strong>Answer:</strong> <span style="color: #666;">(for reference)</span></label>
+                        <input type="text" id="add-answer" value="" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="Answer description or hint">
+                    </div>
+                    <div>
+                        <label for="add-required-answer"><strong>Required Answer:</strong> <span style="color: #d63638;">*</span></label>
+                        <input type="text" id="add-required-answer" value="" style="width: 100%; padding: 5px; margin-top: 5px;" required placeholder="Exact answer participants must provide">
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="add-input-type"><strong>Input Type:</strong></label>
+                    <select id="add-input-type" style="width: 100%; padding: 5px; margin-top: 5px;" onchange="toggleAddInputOptions()">
+                        <option value="text" selected>Text Input</option>
+                        <option value="none">None (Just mark as complete)</option>
+                        <option value="number">Number Input</option>
+                        <option value="multiple_choice">Multiple Choice</option>
+                        <option value="photo">Photo Upload</option>
+                    </select>
+                </div>
+                
+                <div id="add-text-options" class="input-type-options" style="display: block; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
+                    <label style="display: flex; align-items: center;">
+                        <input type="checkbox" id="add-is-case-sensitive" style="margin-right: 8px;">
+                        <span style="font-weight: bold;">Case Sensitive Answer</span>
+                    </label>
+                </div>
+                
+                <div id="add-number-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <label><strong>Min Value:</strong></label>
+                            <input type="number" id="add-min-value" value="" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="Minimum allowed">
+                        </div>
+                        <div>
+                            <label><strong>Max Value:</strong></label>
+                            <input type="number" id="add-max-value" value="" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="Maximum allowed">
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="add-multiple-choice-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
+                    <label><strong>Answer Options:</strong> <small>(format: A: First option\nB: Second option)</small></label>
+                    <textarea id="add-answer-options" style="width: 100%; height: 80px; padding: 5px; margin-top: 5px; resize: vertical;" placeholder="A: First option\nB: Second option\nC: Third option"></textarea>
+                </div>
+                
+                <div id="add-photo-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
+                    <label style="display: flex; align-items: center;">
+                        <input type="checkbox" id="add-photo-required" style="margin-right: 8px;">
+                        <span style="font-weight: bold;">Photo Required</span>
+                    </label>
+                    <label style="display: flex; align-items: center; margin-top: 10px;">
+                        <input type="checkbox" id="add-auto-advance" style="margin-right: 8px;">
+                        <span style="font-weight: bold;">Auto Advance (proceed to next clue automatically)</span>
+                    </label>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <label for="add-latitude"><strong>Latitude:</strong></label>
+                        <input type="number" id="add-latitude" value="" step="any" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="e.g. -27.4698">
+                    </div>
+                    
+                    <div>
+                        <label for="add-longitude"><strong>Longitude:</strong></label>
+                        <input type="number" id="add-longitude" value="" step="any" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="e.g. 153.0251">
+                    </div>
+                    
+                    <div>
+                        <label for="add-geofence-radius"><strong>Geofence Radius (m):</strong></label>
+                        <input type="number" id="add-geofence-radius" value="" min="1" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="e.g. 50">
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="add-image-url"><strong>Image URL:</strong></label>
+                    <input type="url" id="add-image-url" value="" style="width: 100%; padding: 5px; margin-top: 5px;" placeholder="https://example.com/image.jpg">
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; font-weight: bold;">
+                        <input type="checkbox" id="add-is-active" checked style="margin-right: 8px;">
+                        Clue is Active
+                    </label>
+                </div>
+                
+                <div style="padding: 15px 0; border-top: 1px solid #ddd; text-align: right;">
+                    <button type="button" class="button" onclick="closeAddClue()" style="margin-right: 10px;">Cancel</button>
+                    <button type="button" class="button button-primary" id="create-clue-btn" onclick="createNewClue()">Create Clue</button>
+                </div>
+            </form>
+        `;
+        
+        document.getElementById('add-clue-content').innerHTML = formHtml;
+    }
+    
+    function closeAddClue() {
+        document.getElementById('add-clue-modal').style.display = 'none';
+    }
+    
+    // Toggle input type options for edit modal
+    function toggleEditInputOptions() {
+        // Hide all options first
+        document.querySelectorAll('#edit-clue-modal .input-type-options').forEach(function(div) {
+            div.style.display = 'none';
+        });
+        
+        // Show the relevant options
+        var inputType = document.getElementById('edit-input-type').value;
+        var optionsDiv = document.getElementById('edit-' + inputType + '-options');
+        if (optionsDiv) {
+            optionsDiv.style.display = 'block';
+        }
+    }
+    
+    // Toggle input type options for add modal
+    function toggleAddInputOptions() {
+        // Hide all options first
+        document.querySelectorAll('#add-clue-modal .input-type-options').forEach(function(div) {
+            div.style.display = 'none';
+        });
+        
+        // Show the relevant options
+        var inputType = document.getElementById('add-input-type').value;
+        var optionsDiv = document.getElementById('add-' + inputType + '-options');
+        if (optionsDiv) {
+            optionsDiv.style.display = 'block';
+        }
+    }
+    
+    function createNewClue() {
+        // Basic validation
+        var clueOrder = document.getElementById('add-clue-order').value;
+        var clueText = document.getElementById('add-clue-text').value.trim();
+        var answer = document.getElementById('add-answer').value.trim();
+        var latitude = document.getElementById('add-latitude').value;
+        var longitude = document.getElementById('add-longitude').value;
+        
+        if (!clueOrder || clueOrder < 1) {
+            alert('Please enter a valid clue order (1 or greater)');
+            return;
+        }
+        
+        if (!clueText) {
+            alert('Clue text is required');
+            document.getElementById('add-clue-text').focus();
+            return;
+        }
+        
+        var requiredAnswer = document.getElementById('add-required-answer').value.trim();
+        
+        if (!requiredAnswer) {
+            alert('Required Answer is required');
+            document.getElementById('add-required-answer').focus();
+            return;
+        }
+        
+        // Validate coordinates if provided
+        if (latitude && (latitude < -90 || latitude > 90)) {
+            alert('Latitude must be between -90 and 90 degrees');
+            document.getElementById('add-latitude').focus();
+            return;
+        }
+        
+        if (longitude && (longitude < -180 || longitude > 180)) {
+            alert('Longitude must be between -180 and 180 degrees');
+            document.getElementById('add-longitude').focus();
+            return;
+        }
+        
+        // Check if this clue order already exists and warn about reordering
+        var requestedOrder = parseInt(clueOrder);
+        var existingClues = document.querySelectorAll('.clue-item');
+        var existingOrders = [];
+        var willCauseReordering = false;
+        var affectedClues = [];
+        
+        existingClues.forEach(function(item) {
+            var orderMatch = item.innerHTML.match(/Clue #(\d+)/);
+            if (orderMatch) {
+                var existingOrder = parseInt(orderMatch[1]);
+                existingOrders.push(existingOrder);
+                
+                if (existingOrder >= requestedOrder) {
+                    willCauseReordering = true;
+                    affectedClues.push(existingOrder);
+                }
+            }
+        });
+        
+        // Show warning if reordering will occur
+        if (willCauseReordering) {
+            var maxAffected = Math.max(...affectedClues);
+            var message = `⚠️ REORDERING NOTICE\n\n` +
+                         `Adding a new clue at position ${requestedOrder} will cause all remaining clues to be renumbered:\n\n`;
+            
+            affectedClues.sort((a, b) => a - b).forEach(function(order) {
+                message += `• Clue #${order} will become Clue #${order + 1}\n`;
+            });
+            
+            message += `\nThis will affect ${affectedClues.length} existing clue(s).\n\n` +
+                      `Do you want to continue with the reordering?`;
+            
+            if (!confirm(message)) {
+                return; // User cancelled
+            }
+        }
+        
+        var createBtn = document.getElementById('create-clue-btn');
+        createBtn.disabled = true;
+        createBtn.textContent = 'Creating...';
+        
+        // Process answer options for multiple choice
+        var answerOptions = null;
+        if (document.getElementById('add-input-type').value === 'multiple_choice') {
+            var optionsText = document.getElementById('add-answer-options').value.trim();
+            if (optionsText) {
+                var options = {};
+                optionsText.split('\n').forEach(function(line) {
+                    line = line.trim();
+                    if (line && line.includes(':')) {
+                        var parts = line.split(':', 2);
+                        options[parts[0].trim()] = parts[1].trim();
+                    }
+                });
+                answerOptions = JSON.stringify(options);
+            }
+        }
+        
+        var formData = {
+            action: 'create_clue',
+            hunt_id: document.getElementById('add-hunt-id').value,
+            clue_order: document.getElementById('add-clue-order').value,
+            title: document.getElementById('add-clue-title').value,
+            clue_text: document.getElementById('add-clue-text').value,
+            task_description: document.getElementById('add-task-description').value,
+            hint_text: document.getElementById('add-hint-text').value,
+            answer: document.getElementById('add-answer').value,
+            required_answer: document.getElementById('add-required-answer').value,
+            input_type: document.getElementById('add-input-type').value,
+            is_case_sensitive: document.getElementById('add-is-case-sensitive') ? (document.getElementById('add-is-case-sensitive').checked ? 1 : 0) : 0,
+            min_value: document.getElementById('add-min-value') ? document.getElementById('add-min-value').value : '',
+            max_value: document.getElementById('add-max-value') ? document.getElementById('add-max-value').value : '',
+            answer_options: answerOptions,
+            photo_required: document.getElementById('add-photo-required') ? (document.getElementById('add-photo-required').checked ? 1 : 0) : 0,
+            auto_advance: document.getElementById('add-auto-advance') ? (document.getElementById('add-auto-advance').checked ? 1 : 0) : 0,
+            latitude: document.getElementById('add-latitude').value,
+            longitude: document.getElementById('add-longitude').value,
+            geofence_radius: document.getElementById('add-geofence-radius').value,
+            image_url: document.getElementById('add-image-url').value,
+            is_active: document.getElementById('add-is-active').checked ? 1 : 0,
+            nonce: '<?php echo wp_create_nonce('create_clue_nonce'); ?>'
+        };
+        
+        jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', formData, function(response) {
+            if (response.success) {
+                // Show detailed success message including reordering info
+                var message = response.data.message || 'Clue created successfully!';
+                if (response.data.reordered_count > 0) {
+                    message += '\n\n✅ ' + response.data.reordered_count + ' existing clue(s) were automatically renumbered to make room for your new clue.';
+                }
+                alert(message);
+                closeAddClue();
+                // Refresh the clues list
+                refreshCluesList();
+            } else {
+                alert('Error creating clue: ' + response.data);
+                createBtn.disabled = false;
+                createBtn.textContent = 'Create Clue';
+            }
+        }).fail(function() {
+            alert('Network error occurred while creating clue.');
+            createBtn.disabled = false;
+            createBtn.textContent = 'Create Clue';
+        });
     }
     
     // Add Quest Modal
@@ -5929,6 +6524,7 @@ function puzzlepath_quests_page() {
         var cluesModal = document.getElementById('manage-clues-modal');
         var addModal = document.getElementById('add-quest-modal');
         var editClueModal = document.getElementById('edit-clue-modal');
+        var addClueModal = document.getElementById('add-clue-modal');
         
         if (event.target == detailsModal) {
             detailsModal.style.display = 'none';
@@ -5940,6 +6536,8 @@ function puzzlepath_quests_page() {
             addModal.style.display = 'none';
         } else if (event.target == editClueModal) {
             editClueModal.style.display = 'none';
+        } else if (event.target == addClueModal) {
+            addClueModal.style.display = 'none';
         }
     }
     </script>
@@ -6059,5 +6657,136 @@ function puzzlepath_quest_modals() {
             </div>
         </div>
     </div>
+    
+    <!-- Add New Clue Modal -->
+    <div id="add-clue-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto;">
+        <div style="background-color: #fefefe; margin: 20px auto; padding: 20px; border: 1px solid #888; width: 95%; max-width: 800px; border-radius: 5px; max-height: calc(100vh - 40px); overflow-y: auto; position: relative; min-height: 200px;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; position: absolute; right: 15px; top: 10px; z-index: 10;" onclick="closeAddClue()">&times;</span>
+            <div id="add-clue-content" style="margin-top: 10px; padding-right: 10px;">
+                Loading...
+            </div>
+        </div>
+    </div>
     <?php
+}
+
+/**
+ * Email Settings functionality
+ */
+function puzzlepath_email_settings_init() {
+    // Register email settings
+    register_setting('puzzlepath_email_settings', 'puzzlepath_sender_email', 'sanitize_email');
+    register_setting('puzzlepath_email_settings', 'puzzlepath_sender_name', 'sanitize_text_field');
+    
+    // Add settings section
+    add_settings_section(
+        'puzzlepath_email_section',
+        'Email Configuration',
+        'puzzlepath_email_section_callback',
+        'puzzlepath-email-settings'
+    );
+    
+    // Add sender email field
+    add_settings_field(
+        'puzzlepath_sender_email',
+        'Sender Email Address',
+        'puzzlepath_sender_email_callback',
+        'puzzlepath-email-settings',
+        'puzzlepath_email_section'
+    );
+    
+    // Add sender name field
+    add_settings_field(
+        'puzzlepath_sender_name',
+        'Sender Name',
+        'puzzlepath_sender_name_callback',
+        'puzzlepath-email-settings',
+        'puzzlepath_email_section'
+    );
+}
+add_action('admin_init', 'puzzlepath_email_settings_init');
+
+function puzzlepath_email_section_callback() {
+    echo '<p>Configure the email address and name that will appear as the sender for all PuzzlePath booking confirmation emails.</p>';
+}
+
+function puzzlepath_sender_email_callback() {
+    $value = get_option('puzzlepath_sender_email', get_bloginfo('admin_email'));
+    echo '<input type="email" name="puzzlepath_sender_email" value="' . esc_attr($value) . '" class="regular-text" required />';
+    echo '<p class="description">The email address that booking confirmations will be sent from. Defaults to your WordPress admin email.</p>';
+}
+
+function puzzlepath_sender_name_callback() {
+    $value = get_option('puzzlepath_sender_name', 'PuzzlePath Team');
+    echo '<input type="text" name="puzzlepath_sender_name" value="' . esc_attr($value) . '" class="regular-text" />';
+    echo '<p class="description">The name that will appear as the sender of booking confirmation emails.</p>';
+}
+
+function puzzlepath_email_settings_page() {
+    ?>
+    <div class="wrap">
+        <h1>📧 Email Settings</h1>
+        <form method="post" action="options.php">
+            <?php settings_fields('puzzlepath_email_settings'); ?>
+            <?php do_settings_sections('puzzlepath-email-settings'); ?>
+            <?php submit_button(); ?>
+        </form>
+        
+        <div class="card">
+            <h2>📋 Email Template Preview</h2>
+            <p>All booking confirmation emails are sent using a professional template that includes:</p>
+            <ul>
+                <li>✅ Customer name and booking details</li>
+                <li>🎯 Event information and booking code</li>
+                <li>📞 Contact information</li>
+                <li>📱 Professional formatting</li>
+            </ul>
+            <p><em>The sender email and name configured above will be used for all outgoing emails.</em></p>
+        </div>
+        
+        <div class="card">
+            <h2>🧪 Test Email Configuration</h2>
+            <p>To test your email settings:</p>
+            <ol>
+                <li>Save your settings above</li>
+                <li>Create a test booking using a 100% discount coupon</li>
+                <li>Check the From address in the confirmation email</li>
+            </ol>
+            <div class="notice notice-info">
+                <p><strong>Note:</strong> Email delivery depends on your WordPress site's email configuration. Consider using an SMTP plugin for better deliverability.</p>
+            </div>
+        </div>
+    </div>
+    
+    <style>
+        .card {
+            background: #fff;
+            border: 1px solid #c3c4c7;
+            border-radius: 4px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .card h2 {
+            margin-top: 0;
+            color: #1d2327;
+        }
+        .card ul li {
+            margin-bottom: 8px;
+        }
+    </style>
+    <?php
+}
+
+/**
+ * Helper function to get sender email
+ */
+function puzzlepath_get_sender_email() {
+    return get_option('puzzlepath_sender_email', get_bloginfo('admin_email'));
+}
+
+/**
+ * Helper function to get sender name
+ */
+function puzzlepath_get_sender_name() {
+    return get_option('puzzlepath_sender_name', 'PuzzlePath Team');
 }
