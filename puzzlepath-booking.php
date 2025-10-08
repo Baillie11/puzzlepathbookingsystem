@@ -3515,6 +3515,24 @@ function puzzlepath_bookings_page() {
                 wp_redirect(admin_url('admin.php?page=puzzlepath-bookings&message=bulk_emails_sent&count=' . count($booking_ids)));
                 exit;
                 break;
+                
+            case 'bulk_delete':
+                // Comprehensive audit logging before deletion
+                PuzzlePath_Audit_Logger::log_bulk_deletion(
+                    $booking_ids, 
+                    'Bulk deletion performed by admin user - ' . count($booking_ids) . ' bookings deleted'
+                );
+                
+                // Perform the actual deletion
+                $placeholders = implode(',', array_fill(0, count($booking_ids), '%d'));
+                $deleted_count = $wpdb->query($wpdb->prepare(
+                    "DELETE FROM {$bookings_table} WHERE id IN ($placeholders)",
+                    $booking_ids
+                ));
+                
+                wp_redirect(admin_url('admin.php?page=puzzlepath-bookings&message=bulk_deleted&count=' . $deleted_count));
+                exit;
+                break;
         }
     }
     
@@ -3652,6 +3670,10 @@ function puzzlepath_bookings_page() {
                             $count = isset($_GET['count']) ? intval($_GET['count']) : 0;
                             echo sprintf('Confirmation emails sent for %d booking(s).', $count);
                             break;
+                        case 'bulk_deleted':
+                            $count = isset($_GET['count']) ? intval($_GET['count']) : 0;
+                            echo sprintf('%d booking(s) permanently deleted. All changes have been logged in the audit trail.', $count);
+                            break;
                         case 'migration_complete':
                             echo 'Payment status migration completed successfully!';
                             break;
@@ -3750,6 +3772,7 @@ function puzzlepath_bookings_page() {
                         <option value="-1">Bulk Actions</option>
                         <option value="bulk_refund">Refund Selected</option>
                         <option value="bulk_email">Resend Confirmation Emails</option>
+                        <option value="bulk_delete" style="color: #d63638;">🗑️ Delete Selected (PERMANENT)</option>
                     </select>
                     <input type="submit" class="button action" value="Apply">
                 </div>
@@ -3984,6 +4007,32 @@ function puzzlepath_bookings_page() {
         // Select all functionality
         $('#cb-select-all-1').on('click', function() {
             $('input[name="booking_ids[]"]').prop('checked', this.checked);
+        });
+        
+        // Bulk actions confirmation
+        $('form').on('submit', function(e) {
+            var action = $('select[name="action"]').val();
+            var selectedItems = $('input[name="booking_ids[]"]:checked');
+            
+            if (action === 'bulk_delete' && selectedItems.length > 0) {
+                var message = 'WARNING: You are about to PERMANENTLY DELETE ' + selectedItems.length + ' booking(s).\n\n' +
+                            'This action CANNOT be undone!\n\n' +
+                            'All booking data will be permanently removed, but a complete audit trail will be preserved.\n\n' +
+                            'Are you absolutely sure you want to continue?';
+                
+                if (!confirm(message)) {
+                    e.preventDefault();
+                    return false;
+                }
+            }
+            
+            if ((action === 'bulk_refund' || action === 'bulk_email') && selectedItems.length > 0) {
+                var actionName = action === 'bulk_refund' ? 'refund' : 'resend emails for';
+                if (!confirm('Are you sure you want to ' + actionName + ' ' + selectedItems.length + ' booking(s)?')) {
+                    e.preventDefault();
+                    return false;
+                }
+            }
         });
     });
     
