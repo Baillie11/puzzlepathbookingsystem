@@ -5094,44 +5094,6 @@ function puzzlepath_quests_page() {
     // Handle actions
     if (isset($_GET['action'])) {
         switch ($_GET['action']) {
-            case 'deactivate':
-                if (isset($_GET['event_id']) && wp_verify_nonce($_GET['_wpnonce'], 'deactivate_quest_' . $_GET['event_id'])) {
-                    $event_id = intval($_GET['event_id']);
-                    
-                    $wpdb->update(
-                        $events_table,
-                        ['hosting_type' => 'inactive'],
-                        ['id' => $event_id]
-                    );
-                    
-                    wp_redirect(admin_url('admin.php?page=puzzlepath-quests&message=deactivated'));
-                    exit;
-                }
-                break;
-                
-            case 'activate':
-                if (isset($_GET['event_id']) && wp_verify_nonce($_GET['_wpnonce'], 'activate_quest_' . $_GET['event_id'])) {
-                    $event_id = intval($_GET['event_id']);
-                    
-                    // Get the current quest to determine what type to restore it to
-                    $quest = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$events_table} WHERE id = %d", $event_id));
-                    
-                    if ($quest) {
-                        // Default to 'self-hosted' if unsure, or 'hosted' if it has a specific event_date
-                        $new_hosting_type = $quest->event_date ? 'hosted' : 'self-hosted';
-                        
-                        $wpdb->update(
-                            $events_table,
-                            ['hosting_type' => $new_hosting_type],
-                            ['id' => $event_id]
-                        );
-                    }
-                    
-                    wp_redirect(admin_url('admin.php?page=puzzlepath-quests&message=activated'));
-                    exit;
-                }
-                break;
-                
             case 'delete':
                 if (isset($_GET['event_id']) && wp_verify_nonce($_GET['_wpnonce'], 'delete_quest_' . $_GET['event_id'])) {
                     $event_id = intval($_GET['event_id']);
@@ -5224,7 +5186,7 @@ function puzzlepath_quests_page() {
             </div>
             <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #00a32a; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                 <h3 style="margin: 0; color: #00a32a;">Active Quests</h3>
-                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo count(array_filter($quests, function($q) { return $q->is_active; })); ?></p>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo count(array_filter($quests, function($q) { return $q->display_on_site; })); ?></p>
             </div>
             <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #dba617; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                 <h3 style="margin: 0; color: #dba617;">Total Clues</h3>
@@ -5248,14 +5210,13 @@ function puzzlepath_quests_page() {
                     <th>Duration</th>
                     <th>Completions</th>
                     <th>Status</th>
-                    <th>Display</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($quests)): ?>
                     <tr>
-                        <td colspan="10" style="text-align: center; padding: 20px;">No quests found. <a href="#" onclick="showAddQuestModal()">Create your first quest</a>.</td>
+                        <td colspan="9" style="text-align: center; padding: 20px;">No quests found. <a href="#" onclick="showAddQuestModal()">Create your first quest</a>.</td>
                     </tr>
                 <?php else: ?>
                     <?php foreach ($quests as $quest): ?>
@@ -5303,32 +5264,22 @@ function puzzlepath_quests_page() {
                             <td>
                                 <strong><?php echo $quest->total_completions; ?></strong> times
                             </td>
-                            <td>
-                                <span class="quest-status status-<?php echo $quest->is_active ? 'active' : 'inactive'; ?>" style="padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase; color: white; background: <?php echo $quest->is_active ? '#00a32a' : '#d63638'; ?>;">
-                                    <?php echo $quest->is_active ? 'Active' : 'Inactive'; ?>
-                                </span>
-                            </td>
                             <td style="text-align: center;">
-                                <label class="display-toggle" style="display: inline-flex; align-items: center; cursor: pointer;">
+                                <label class="status-toggle" style="display: inline-flex; align-items: center; cursor: pointer;">
                                     <input type="checkbox" 
                                            id="display_<?php echo $quest->id; ?>" 
                                            <?php echo $quest->display_on_site ? 'checked' : ''; ?> 
                                            onchange="toggleQuestDisplay(<?php echo $quest->id; ?>, this.checked)"
-                                           style="margin: 0; margin-right: 5px;" />
-                                    <span style="font-size: 11px; color: #666;"><?php echo $quest->display_on_site ? 'Visible' : 'Hidden'; ?></span>
+                                           style="margin: 0; margin-right: 8px;" />
+                                    <span class="quest-status" style="padding: 4px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase; color: white; background: <?php echo $quest->display_on_site ? '#00a32a' : '#d63638'; ?>; font-weight: bold;">
+                                        <?php echo $quest->display_on_site ? '✅ ACTIVE' : '❌ HIDDEN'; ?>
+                                    </span>
                                 </label>
                             </td>
                             <td>
                                 <a href="#" onclick="showQuestDetails(<?php echo $quest->id; ?>); return false;" title="View Details">👁️</a>
                                 <a href="#" onclick="editQuest(<?php echo $quest->id; ?>); return false;" title="Edit Quest">✏️</a>
                                 <a href="#" onclick="manageClues(<?php echo $quest->id; ?>); return false;" title="Manage Clues">🧩</a>
-                                <?php if ($quest->is_active): ?>
-                                    <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=deactivate&event_id=' . $quest->id), 'deactivate_quest_' . $quest->id); ?>" 
-                                       onclick="return confirm('Are you sure you want to deactivate this quest?');" title="Deactivate Quest">🚫</a>
-                                <?php else: ?>
-                                    <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=activate&event_id=' . $quest->id), 'activate_quest_' . $quest->id); ?>" 
-                                       onclick="return confirm('Are you sure you want to activate this quest?');" title="Activate Quest">✅</a>
-                                <?php endif; ?>
                                 <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=puzzlepath-quests&action=delete&event_id=' . $quest->id), 'delete_quest_' . $quest->id); ?>" 
                                    onclick="return confirmDeleteQuest('<?php echo esc_js($quest->quest_name ?: $quest->title); ?>', '<?php echo esc_js($quest->quest_code ?: $quest->hunt_code); ?>');" 
                                    title="Delete Quest" style="color: #d63638; text-decoration: none;">🗑️</a>
@@ -6223,11 +6174,14 @@ function puzzlepath_quests_page() {
         });
     });
     
-    // Toggle Quest Display on Site
+    // Toggle Quest Display/Status on Site
     function toggleQuestDisplay(questId, isDisplayed) {
-        var statusText = document.querySelector('#display_' + questId).parentNode.querySelector('span');
-        var originalText = statusText.textContent;
-        statusText.textContent = 'Updating...';
+        var statusSpan = document.querySelector('#display_' + questId).parentNode.querySelector('.quest-status');
+        var originalText = statusSpan.textContent;
+        var originalBg = statusSpan.style.background;
+        
+        statusSpan.textContent = '⏳ UPDATING...';
+        statusSpan.style.background = '#999';
         
         jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', {
             action: 'toggle_quest_display',
@@ -6236,17 +6190,19 @@ function puzzlepath_quests_page() {
             nonce: '<?php echo wp_create_nonce('toggle_quest_display_nonce'); ?>'
         }, function(response) {
             if (response.success) {
-                statusText.textContent = isDisplayed ? 'Visible' : 'Hidden';
-                statusText.style.color = isDisplayed ? '#00a32a' : '#666';
+                statusSpan.textContent = isDisplayed ? '✅ ACTIVE' : '❌ HIDDEN';
+                statusSpan.style.background = isDisplayed ? '#00a32a' : '#d63638';
             } else {
                 alert('Error: ' + response.data);
                 document.getElementById('display_' + questId).checked = !isDisplayed;
-                statusText.textContent = originalText;
+                statusSpan.textContent = originalText;
+                statusSpan.style.background = originalBg;
             }
         }).fail(function() {
-            alert('Network error occurred while updating display status');
+            alert('Network error occurred while updating quest status');
             document.getElementById('display_' + questId).checked = !isDisplayed;
-            statusText.textContent = originalText;
+            statusSpan.textContent = originalText;
+            statusSpan.style.background = originalBg;
         });
     }
     
