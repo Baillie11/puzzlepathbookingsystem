@@ -94,6 +94,32 @@ function puzzlepath_activate() {
     ) $charset_collate;";
     dbDelta($sql);
     
+    // Audit Log Table - Comprehensive tracking of all booking changes
+    $table_name = $wpdb->prefix . 'pp_booking_audit';
+    $sql = "CREATE TABLE $table_name (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        booking_id mediumint(9) NOT NULL,
+        booking_code varchar(25) DEFAULT NULL,
+        action varchar(50) NOT NULL,
+        user_id bigint(20) DEFAULT NULL,
+        user_login varchar(60) DEFAULT NULL,
+        user_email varchar(100) DEFAULT NULL,
+        ip_address varchar(45) DEFAULT NULL,
+        user_agent text DEFAULT NULL,
+        old_data longtext DEFAULT NULL,
+        new_data longtext DEFAULT NULL,
+        changed_fields text DEFAULT NULL,
+        notes text DEFAULT NULL,
+        created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        PRIMARY KEY  (id),
+        INDEX booking_id (booking_id),
+        INDEX action (action),
+        INDEX user_id (user_id),
+        INDEX created_at (created_at),
+        INDEX booking_code (booking_code)
+    ) $charset_collate;";
+    dbDelta($sql);
+    
     // Create compatibility view for unified app
     $view_name = $wpdb->prefix . 'pp_bookings_unified';
     $wpdb->query("DROP VIEW IF EXISTS $view_name");
@@ -181,6 +207,234 @@ function puzzlepath_activate() {
 }
 
 register_activation_hook(__FILE__, 'puzzlepath_activate');
+
+/**
+ * Comprehensive audit logging system for booking changes
+ */
+class PuzzlePath_Audit_Logger {
+    
+    /**
+     * Log a booking action to the audit trail
+     * 
+     * @param int $booking_id Booking ID
+     * @param string $action Action performed (created, updated, status_changed, deleted, etc.)
+     * @param array|null $old_data Previous booking data (null for new bookings)
+     * @param array|null $new_data New booking data (null for deletions)
+     * @param string $notes Additional notes about the action
+     * @param int|null $user_id User who performed the action (null for system actions)
+     */
+    public static function log_booking_action($booking_id, $action, $old_data = null, $new_data = null, $notes = '', $user_id = null) {
+        global $wpdb;
+        
+        // Get current user info if not provided
+        if ($user_id === null) {
+            $current_user = wp_get_current_user();
+            $user_id = $current_user->ID ?: null;
+            $user_login = $current_user->user_login ?: 'system';
+            $user_email = $current_user->user_email ?: null;
+        } else {
+            $user = get_userdata($user_id);
+            $user_login = $user ? $user->user_login : 'unknown';
+            $user_email = $user ? $user->user_email : null;
+        }
+        
+        // Get booking code if we have booking data
+        $booking_code = null;
+        if ($new_data && isset($new_data['booking_code'])) {
+            $booking_code = $new_data['booking_code'];
+        } elseif ($old_data && isset($old_data['booking_code'])) {
+            $booking_code = $old_data['booking_code'];
+        } else {
+            // Try to get from database
+            $booking = $wpdb->get_row($wpdb->prepare(
+                "SELECT booking_code FROM {$wpdb->prefix}pp_bookings WHERE id = %d", 
+                $booking_id
+            ));
+            $booking_code = $booking ? $booking->booking_code : null;
+        }
+        
+        // Determine what fields changed
+        $changed_fields = [];
+        if ($old_data && $new_data) {
+            foreach ($new_data as $field => $new_value) {
+                $old_value = isset($old_data[$field]) ? $old_data[$field] : null;
+                if ($old_value != $new_value) {
+                    $changed_fields[] = $field;
+                }
+            }
+        }
+        
+        // Get request info
+        $ip_address = self::get_client_ip();
+        $user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : null;
+        
+        // Prepare audit data
+        $audit_data = [
+            'booking_id' => $booking_id,
+            'booking_code' => $booking_code,
+            'action' => $action,
+            'user_id' => $user_id,
+            'user_login' => $user_login,
+            'user_email' => $user_email,
+            'ip_address' => $ip_address,
+            'user_agent' => $user_agent,
+            'old_data' => $old_data ? json_encode($old_data) : null,
+            'new_data' => $new_data ? json_encode($new_data) : null,
+            'changed_fields' => !empty($changed_fields) ? implode(',', $changed_fields) : null,
+            'notes' => $notes,
+            'created_at' => current_time('mysql')
+        ];
+        
+        // Insert audit record
+        $result = $wpdb->insert(
+            $wpdb->prefix . 'pp_booking_audit',
+            $audit_data
+        );
+        
+        // Log errors if insert failed
+        if ($result === false) {
+            error_log('PuzzlePath Audit Log Error: ' . $wpdb->last_error);
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * Log booking creation
+     */
+    public static function log_booking_created($booking_id, $booking_data, $notes = 'Booking created via website') {
+        return self::log_booking_action($booking_id, 'created', null, $booking_data, $notes);
+    }
+    
+    /**
+     * Log booking update
+     */
+    public static function log_booking_updated($booking_id, $old_data, $new_data, $notes = 'Booking updated') {
+        return self::log_booking_action($booking_id, 'updated', $old_data, $new_data, $notes);
+    }
+    
+    /**
+     * Log payment status change
+     */
+    public static function log_payment_status_changed($booking_id, $old_status, $new_status, $notes = 'Payment status changed') {
+        $old_data = ['payment_status' => $old_status];
+        $new_data = ['payment_status' => $new_status];
+        return self::log_booking_action($booking_id, 'payment_status_changed', $old_data, $new_data, $notes);
+    }
+    
+    /**
+     * Log booking deletion
+     */
+    public static function log_booking_deleted($booking_id, $booking_data, $notes = 'Booking deleted') {
+        return self::log_booking_action($booking_id, 'deleted', $booking_data, null, $notes);
+    }
+    
+    /**
+     * Log bulk deletion
+     */
+    public static function log_bulk_deletion($booking_ids, $notes = 'Bulk deletion performed') {
+        global $wpdb;
+        
+        // Get all booking data before deletion
+        $placeholders = implode(',', array_fill(0, count($booking_ids), '%d'));
+        $bookings = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}pp_bookings WHERE id IN ($placeholders)",
+            $booking_ids
+        ), ARRAY_A);
+        
+        // Log each deletion
+        foreach ($bookings as $booking) {
+            self::log_booking_deleted($booking['id'], $booking, $notes);
+        }
+    }
+    
+    /**
+     * Get client IP address
+     */
+    private static function get_client_ip() {
+        $ip_keys = ['HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED', 'HTTP_FORWARDED_FOR', 'HTTP_FORWARDED', 'REMOTE_ADDR'];
+        
+        foreach ($ip_keys as $key) {
+            if (array_key_exists($key, $_SERVER) === true) {
+                foreach (explode(',', $_SERVER[$key]) as $ip) {
+                    $ip = trim($ip);
+                    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false) {
+                        return $ip;
+                    }
+                }
+            }
+        }
+        
+        return isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown';
+    }
+    
+    /**
+     * Get audit log entries for a booking
+     */
+    public static function get_booking_audit_log($booking_id, $limit = 50) {
+        global $wpdb;
+        
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}pp_booking_audit 
+             WHERE booking_id = %d 
+             ORDER BY created_at DESC 
+             LIMIT %d",
+            $booking_id,
+            $limit
+        ), ARRAY_A);
+    }
+    
+    /**
+     * Get all audit log entries with filtering
+     */
+    public static function get_audit_log($filters = [], $limit = 100, $offset = 0) {
+        global $wpdb;
+        
+        $where_clauses = [];
+        $where_values = [];
+        
+        // Build WHERE clauses based on filters
+        if (!empty($filters['booking_id'])) {
+            $where_clauses[] = 'booking_id = %d';
+            $where_values[] = $filters['booking_id'];
+        }
+        
+        if (!empty($filters['booking_code'])) {
+            $where_clauses[] = 'booking_code LIKE %s';
+            $where_values[] = '%' . $wpdb->esc_like($filters['booking_code']) . '%';
+        }
+        
+        if (!empty($filters['action'])) {
+            $where_clauses[] = 'action = %s';
+            $where_values[] = $filters['action'];
+        }
+        
+        if (!empty($filters['user_id'])) {
+            $where_clauses[] = 'user_id = %d';
+            $where_values[] = $filters['user_id'];
+        }
+        
+        if (!empty($filters['date_from'])) {
+            $where_clauses[] = 'DATE(created_at) >= %s';
+            $where_values[] = $filters['date_from'];
+        }
+        
+        if (!empty($filters['date_to'])) {
+            $where_clauses[] = 'DATE(created_at) <= %s';
+            $where_values[] = $filters['date_to'];
+        }
+        
+        $where_sql = '';
+        if (!empty($where_clauses)) {
+            $where_sql = 'WHERE ' . implode(' AND ', $where_clauses);
+        }
+        
+        $query = "SELECT * FROM {$wpdb->prefix}pp_booking_audit $where_sql ORDER BY created_at DESC LIMIT %d OFFSET %d";
+        $query_values = array_merge($where_values, [$limit, $offset]);
+        
+        return $wpdb->get_results($wpdb->prepare($query, $query_values), ARRAY_A);
+    }
+}
 
 /**
  * Fix unified app compatibility for existing bookings
@@ -422,14 +676,288 @@ function puzzlepath_register_admin_menus() {
     add_submenu_page('puzzlepath-booking', 'Coupons', 'Coupons', 'manage_options', 'puzzlepath-coupons', 'puzzlepath_coupons_page');
     add_submenu_page('puzzlepath-booking', 'Quest Import', 'Quest Import', 'edit_posts', 'puzzlepath-quest-import', 'puzzlepath_quest_import_page');
     add_submenu_page('puzzlepath-booking', 'Test Bookings', 'Test Bookings', 'manage_options', 'puzzlepath-test-bookings', 'puzzlepath_test_bookings_page');
+    add_submenu_page('puzzlepath-booking', 'Audit Log', 'Audit Log', 'manage_options', 'puzzlepath-audit-log', 'puzzlepath_audit_log_page');
     add_submenu_page('puzzlepath-booking', 'Email Settings', 'Email Settings', 'manage_options', 'puzzlepath-email-settings', 'puzzlepath_email_settings_page');
     if (class_exists('PuzzlePath_Stripe_Integration')) {
         $stripe_instance = PuzzlePath_Stripe_Integration::get_instance();
         add_submenu_page('puzzlepath-booking', 'Stripe Settings', 'Stripe Settings', 'manage_options', 'puzzlepath-stripe-settings', array($stripe_instance, 'stripe_settings_page_content'));
     }
     remove_submenu_page('puzzlepath-booking', 'puzzlepath-booking');
-};
+}
 add_action('admin_menu', 'puzzlepath_register_admin_menus');
+
+/**
+ * Display the Audit Log admin page
+ */
+function puzzlepath_audit_log_page() {
+    if (!current_user_can('manage_options')) {
+        wp_die(__('You do not have sufficient permissions to access this page.'));
+    }
+    
+    // Handle filtering
+    $filters = [];
+    if (isset($_GET['booking_code']) && !empty($_GET['booking_code'])) {
+        $filters['booking_code'] = sanitize_text_field($_GET['booking_code']);
+    }
+    if (isset($_GET['action_filter']) && !empty($_GET['action_filter'])) {
+        $filters['action'] = sanitize_text_field($_GET['action_filter']);
+    }
+    if (isset($_GET['date_from']) && !empty($_GET['date_from'])) {
+        $filters['date_from'] = sanitize_text_field($_GET['date_from']);
+    }
+    if (isset($_GET['date_to']) && !empty($_GET['date_to'])) {
+        $filters['date_to'] = sanitize_text_field($_GET['date_to']);
+    }
+    
+    $per_page = 50;
+    $page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+    $offset = ($page - 1) * $per_page;
+    
+    // Get audit log entries
+    $audit_entries = PuzzlePath_Audit_Logger::get_audit_log($filters, $per_page, $offset);
+    
+    // Get total count for pagination
+    global $wpdb;
+    $where_clauses = [];
+    $where_values = [];
+    
+    if (!empty($filters['booking_code'])) {
+        $where_clauses[] = 'booking_code LIKE %s';
+        $where_values[] = '%' . $wpdb->esc_like($filters['booking_code']) . '%';
+    }
+    if (!empty($filters['action'])) {
+        $where_clauses[] = 'action = %s';
+        $where_values[] = $filters['action'];
+    }
+    if (!empty($filters['date_from'])) {
+        $where_clauses[] = 'DATE(created_at) >= %s';
+        $where_values[] = $filters['date_from'];
+    }
+    if (!empty($filters['date_to'])) {
+        $where_clauses[] = 'DATE(created_at) <= %s';
+        $where_values[] = $filters['date_to'];
+    }
+    
+    $where_sql = '';
+    if (!empty($where_clauses)) {
+        $where_sql = 'WHERE ' . implode(' AND ', $where_clauses);
+    }
+    
+    $count_query = "SELECT COUNT(*) FROM {$wpdb->prefix}pp_booking_audit $where_sql";
+    $total_items = empty($where_values) ? 
+        $wpdb->get_var($count_query) : 
+        $wpdb->get_var($wpdb->prepare($count_query, $where_values));
+    
+    $total_pages = ceil($total_items / $per_page);
+    
+    ?>
+    <div class="wrap">
+        <h1>📋 Booking Audit Log</h1>
+        <p>Comprehensive tracking of all booking changes and activities.</p>
+        
+        <!-- Filters -->
+        <div class="audit-filters" style="background: #fff; padding: 15px; margin-bottom: 20px; border: 1px solid #c3c4c7; border-radius: 4px;">
+            <form method="get" action="">
+                <input type="hidden" name="page" value="puzzlepath-audit-log" />
+                
+                <div style="display: flex; gap: 15px; align-items: end; flex-wrap: wrap;">
+                    <div>
+                        <label for="booking_code"><strong>Booking Code:</strong></label><br>
+                        <input type="text" name="booking_code" id="booking_code" value="<?php echo esc_attr($filters['booking_code'] ?? ''); ?>" placeholder="Search by booking code" class="regular-text" />
+                    </div>
+                    
+                    <div>
+                        <label for="action_filter"><strong>Action:</strong></label><br>
+                        <select name="action_filter" id="action_filter">
+                            <option value="">All Actions</option>
+                            <option value="created" <?php selected($filters['action'] ?? '', 'created'); ?>>Created</option>
+                            <option value="updated" <?php selected($filters['action'] ?? '', 'updated'); ?>>Updated</option>
+                            <option value="payment_status_changed" <?php selected($filters['action'] ?? '', 'payment_status_changed'); ?>>Payment Status Changed</option>
+                            <option value="deleted" <?php selected($filters['action'] ?? '', 'deleted'); ?>>Deleted</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label for="date_from"><strong>From Date:</strong></label><br>
+                        <input type="date" name="date_from" id="date_from" value="<?php echo esc_attr($filters['date_from'] ?? ''); ?>" />
+                    </div>
+                    
+                    <div>
+                        <label for="date_to"><strong>To Date:</strong></label><br>
+                        <input type="date" name="date_to" id="date_to" value="<?php echo esc_attr($filters['date_to'] ?? ''); ?>" />
+                    </div>
+                    
+                    <div>
+                        <input type="submit" class="button" value="Filter" />
+                        <a href="<?php echo admin_url('admin.php?page=puzzlepath-audit-log'); ?>" class="button">Clear</a>
+                    </div>
+                </div>
+            </form>
+        </div>
+        
+        <!-- Statistics -->
+        <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+            <div style="background: #fff; padding: 15px; border-left: 4px solid #2271b1; box-shadow: 0 1px 1px rgba(0,0,0,.04); flex: 1;">
+                <h3 style="margin: 0; color: #2271b1;">Total Entries</h3>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo number_format($total_items); ?></p>
+            </div>
+            
+            <?php 
+            $action_counts = $wpdb->get_results(
+                "SELECT action, COUNT(*) as count FROM {$wpdb->prefix}pp_booking_audit GROUP BY action ORDER BY count DESC", 
+                ARRAY_A
+            );
+            foreach (array_slice($action_counts, 0, 3) as $action_count): ?>
+            <div style="background: #fff; padding: 15px; border-left: 4px solid #00a32a; box-shadow: 0 1px 1px rgba(0,0,0,.04); flex: 1;">
+                <h3 style="margin: 0; color: #00a32a;"><?php echo ucwords(str_replace('_', ' ', $action_count['action'])); ?></h3>
+                <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo number_format($action_count['count']); ?></p>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        
+        <!-- Audit Log Table -->
+        <?php if (empty($audit_entries)): ?>
+            <div class="notice notice-info">
+                <p><strong>No audit entries found.</strong> <?php echo empty($filters) ? 'No booking activities have been logged yet.' : 'Try adjusting your filters.'; ?></p>
+            </div>
+        <?php else: ?>
+            <table class="wp-list-table widefat fixed striped">
+                <thead>
+                    <tr>
+                        <th style="width: 140px;">Date/Time</th>
+                        <th style="width: 120px;">Booking Code</th>
+                        <th style="width: 80px;">Action</th>
+                        <th style="width: 100px;">User</th>
+                        <th style="width: 120px;">Changes</th>
+                        <th>Notes</th>
+                        <th style="width: 60px;">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($audit_entries as $entry): ?>
+                        <tr>
+                            <td>
+                                <strong><?php echo date('M j, Y', strtotime($entry['created_at'])); ?></strong><br>
+                                <small style="color: #666;"><?php echo date('g:i A', strtotime($entry['created_at'])); ?></small>
+                            </td>
+                            <td>
+                                <?php if ($entry['booking_code']): ?>
+                                    <code style="background: #f1f1f1; padding: 2px 4px; border-radius: 3px;"><?php echo esc_html($entry['booking_code']); ?></code>
+                                <?php else: ?>
+                                    <em style="color: #666;">N/A</em>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php 
+                                $action_colors = [
+                                    'created' => '#00a32a',
+                                    'updated' => '#2271b1', 
+                                    'payment_status_changed' => '#dba617',
+                                    'deleted' => '#d63638'
+                                ];
+                                $color = $action_colors[$entry['action']] ?? '#666';
+                                ?>
+                                <span style="padding: 2px 6px; border-radius: 3px; font-size: 11px; text-transform: uppercase; color: white; background: <?php echo $color; ?>; font-weight: bold;">
+                                    <?php echo esc_html(str_replace('_', ' ', $entry['action'])); ?>
+                                </span>
+                            </td>
+                            <td>
+                                <?php if ($entry['user_login'] && $entry['user_login'] !== 'system'): ?>
+                                    <strong><?php echo esc_html($entry['user_login']); ?></strong>
+                                    <?php if ($entry['user_email']): ?>
+                                        <br><small style="color: #666;"><?php echo esc_html($entry['user_email']); ?></small>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    <em style="color: #666;">System</em>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($entry['changed_fields']): ?>
+                                    <small><?php echo esc_html($entry['changed_fields']); ?></small>
+                                <?php else: ?>
+                                    <em style="color: #666;">—</em>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php echo esc_html($entry['notes'] ?: '—'); ?>
+                            </td>
+                            <td>
+                                <button type="button" class="button button-small" onclick="showAuditDetails(<?php echo $entry['id']; ?>)">View</button>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            
+            <!-- Pagination -->
+            <?php if ($total_pages > 1): ?>
+                <div class="tablenav" style="margin-top: 20px;">
+                    <div class="tablenav-pages">
+                        <span class="displaying-num"><?php echo number_format($total_items); ?> items</span>
+                        
+                        <?php 
+                        $base_url = admin_url('admin.php?page=puzzlepath-audit-log');
+                        if (!empty($filters)) {
+                            $base_url .= '&' . http_build_query(array_filter($filters));
+                        }
+                        ?>
+                        
+                        <span class="pagination-links">
+                            <?php if ($page > 1): ?>
+                                <a class="prev-page button" href="<?php echo $base_url . '&paged=' . ($page - 1); ?>">‹</a>
+                            <?php endif; ?>
+                            
+                            <span class="paging-input">
+                                Page <?php echo $page; ?> of <?php echo $total_pages; ?>
+                            </span>
+                            
+                            <?php if ($page < $total_pages): ?>
+                                <a class="next-page button" href="<?php echo $base_url . '&paged=' . ($page + 1); ?>">›</a>
+                            <?php endif; ?>
+                        </span>
+                    </div>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
+    
+    <!-- Audit Details Modal -->
+    <div id="audit-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+        <div style="background-color: #fefefe; margin: 50px auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 5px; max-height: 80vh; overflow-y: auto;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;" onclick="closeAuditDetails()">&times;</span>
+            <h2>Audit Entry Details</h2>
+            <div id="audit-details-content">
+                Loading...
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    function showAuditDetails(entryId) {
+        document.getElementById('audit-details-modal').style.display = 'block';
+        document.getElementById('audit-details-content').innerHTML = 'Loading...';
+        
+        // Here you could make an AJAX call to get detailed info
+        // For now, we'll just show a placeholder
+        document.getElementById('audit-details-content').innerHTML = 
+            '<p>Detailed audit information for entry ID: ' + entryId + '</p>' +
+            '<p><em>Full data viewing feature coming soon...</em></p>';
+    }
+    
+    function closeAuditDetails() {
+        document.getElementById('audit-details-modal').style.display = 'none';
+    }
+    
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        var modal = document.getElementById('audit-details-modal');
+        if (event.target == modal) {
+            modal.style.display = 'none';
+        }
+    }
+    </script>
+    <?php
+}
 
 
 /**
@@ -2156,6 +2684,13 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                 
                 $wpdb->insert("wp2s_pp_bookings", $booking_data);
                 $booking_id = $wpdb->insert_id;
+                
+                // Log booking creation
+                PuzzlePath_Audit_Logger::log_booking_created(
+                    $booking_id, 
+                    $booking_data, 
+                    'Booking created via Stripe payment intent'
+                );
 
                 $payment_intent = \Stripe\PaymentIntent::create([
                     'amount' => $total_price * 100,
@@ -2215,6 +2750,14 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
             $booking = $wpdb->get_row($wpdb->prepare("SELECT * FROM $bookings_table WHERE stripe_payment_intent_id = %s", $payment_intent_id));
 
             if ($booking && $booking->payment_status === 'pending') {
+                // Log payment status change
+                PuzzlePath_Audit_Logger::log_payment_status_changed(
+                    $booking->id,
+                    'pending',
+                    'paid',
+                    'Payment successful via Stripe webhook'
+                );
+                
                 $wpdb->update($bookings_table, 
                     ['payment_status' => 'paid'], 
                     ['id' => $booking->id]
@@ -2358,6 +2901,13 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                 
                 $wpdb->insert("{$wpdb->prefix}pp_bookings", $booking_data);
                 $booking_id = $wpdb->insert_id;
+                
+                // Log free booking creation
+                PuzzlePath_Audit_Logger::log_booking_created(
+                    $booking_id, 
+                    $booking_data, 
+                    'Free booking created (100% discount or $0 total)'
+                );
 
                 // Update event seats immediately (no payment processing delay)
                 $wpdb->query($wpdb->prepare(
