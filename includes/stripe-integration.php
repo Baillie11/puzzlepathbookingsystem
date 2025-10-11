@@ -250,7 +250,14 @@ class PuzzlePath_Stripe_Integration {
         
         $message .= "Regards,\n{$sender_name}";
         
-        wp_mail($to, $subject, $message);
+        // Set up email headers with BCC to admin
+        $headers = array(
+            'Content-Type: text/plain; charset=UTF-8',
+            'From: ' . $sender_name . ' <' . puzzlepath_get_sender_email() . '>',
+            'Bcc: bookings@puzzlepath.com.au'
+        );
+        
+        wp_mail($to, $subject, $message, $headers);
         
         // Remove email filters to avoid affecting other emails
         remove_filter('wp_mail_from', 'puzzlepath_get_sender_email');

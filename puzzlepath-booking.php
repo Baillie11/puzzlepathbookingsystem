@@ -5701,10 +5701,11 @@ function puzzlepath_get_quest_clues_ajax() {
             <button type="button" class="button button-primary" onclick="addNewClue('<?php echo esc_js($quest->hunt_code); ?>')">Add New Clue</button>
         </div>
         
-        <div class="clues-list">
+        <div id="sortable-clues-list" class="clues-list">
             <?php foreach ($clues as $clue): ?>
-                <div class="clue-item" style="background: #fff; margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 4px;">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div class="clue-item" data-clue-id="<?php echo $clue->id; ?>" style="background: #fff; margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; cursor: move; position: relative;">
+                    <div class="drag-handle" style="position: absolute; left: 5px; top: 50%; transform: translateY(-50%); color: #666; font-size: 16px; cursor: grab;" title="Drag to reorder">⠿</div>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-left: 25px;">
                         <div style="flex: 1;">
                             <h4 style="margin: 0 0 10px 0; color: #2271b1;">
                                 Clue #<?php echo $clue->clue_order; ?>
@@ -5777,7 +5778,152 @@ function puzzlepath_get_quest_clues_ajax() {
         <div style="clear: both;"></div>
     </div>
     
+    <style>
+    /* Drag and Drop Styles */
+    .clue-item.ui-sortable-helper {
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        transform: rotate(2deg);
+        opacity: 0.9;
+        z-index: 1000;
+    }
+    
+    .clue-item.ui-sortable-placeholder {
+        background: #f0f6ff !important;
+        border: 2px dashed #2271b1 !important;
+        height: 60px;
+        visibility: visible !important;
+    }
+    
+    .clue-item.ui-sortable-placeholder:before {
+        content: "Drop clue here";
+        display: block;
+        text-align: center;
+        color: #2271b1;
+        font-weight: bold;
+        line-height: 56px;
+    }
+    
+    .clues-list.sorting {
+        background: #f8f9ff;
+        border-radius: 4px;
+        padding: 5px;
+    }
+    
+    .drag-handle:hover {
+        color: #2271b1 !important;
+        cursor: grab;
+    }
+    
+    .drag-handle:active {
+        cursor: grabbing;
+    }
+    
+    .save-order-notice {
+        background: #d1ecf1;
+        border: 1px solid #bee5eb;
+        border-radius: 4px;
+        padding: 10px;
+        margin: 10px 0;
+        color: #0c5460;
+        display: none;
+    }
+    </style>
+    
     <script>
+    // Ensure jQuery UI sortable is loaded
+    if (typeof jQuery.ui === 'undefined' || typeof jQuery.ui.sortable === 'undefined') {
+        // Load jQuery UI from CDN if not available
+        var jqueryUIScript = document.createElement('script');
+        jqueryUIScript.src = 'https://code.jquery.com/ui/1.12.1/jquery-ui.min.js';
+        jqueryUIScript.onload = function() {
+            initializeSortableClues();
+        };
+        document.head.appendChild(jqueryUIScript);
+        
+        // Load jQuery UI CSS
+        var jqueryUICSS = document.createElement('link');
+        jqueryUICSS.rel = 'stylesheet';
+        jqueryUICSS.href = 'https://code.jquery.com/ui/1.12.1/themes/ui-lightness/jquery-ui.css';
+        document.head.appendChild(jqueryUICSS);
+    } else {
+        // jQuery UI is already loaded
+        jQuery(document).ready(function($) {
+            initializeSortableClues();
+        });
+    }
+    
+    function initializeSortableClues() {
+        if (jQuery('#sortable-clues-list').length === 0) return;
+        
+        jQuery('#sortable-clues-list').sortable({
+            items: '.clue-item',
+            handle: '.drag-handle',
+            placeholder: 'ui-sortable-placeholder',
+            forcePlaceholderSize: true,
+            tolerance: 'pointer',
+            start: function(event, ui) {
+                // Add visual feedback when starting drag
+                jQuery('.clues-list').addClass('sorting');
+                showSaveOrderNotice();
+            },
+            stop: function(event, ui) {
+                // Remove visual feedback when stopping drag
+                jQuery('.clues-list').removeClass('sorting');
+                
+                // Get new order of clue IDs
+                var clueIds = [];
+                jQuery('#sortable-clues-list .clue-item').each(function() {
+                    clueIds.push(jQuery(this).data('clue-id'));
+                });
+                
+                // Send AJAX request to save new order
+                saveClueOrder(clueIds);
+            }
+        }).disableSelection();
+    }
+    
+    function showSaveOrderNotice() {
+        if (jQuery('.save-order-notice').length === 0) {
+            var notice = '<div class="save-order-notice">📝 Drag clues to reorder them. Changes will be saved automatically.</div>';
+            jQuery('#sortable-clues-list').before(notice);
+        }
+        jQuery('.save-order-notice').slideDown();
+    }
+    
+    function saveClueOrder(clueIds) {
+        // Show saving indicator
+        var notice = jQuery('.save-order-notice');
+        notice.html('💾 Saving new clue order...').css('background', '#fff3cd');
+        
+        jQuery.post('<?php echo admin_url('admin-ajax.php'); ?>', {
+            action: 'reorder_clues',
+            clue_ids: clueIds,
+            nonce: '<?php echo wp_create_nonce('reorder_clues_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                // Update clue numbers in the UI
+                updateClueNumbers();
+                notice.html('✅ Clue order saved successfully!').css('background', '#d1edcc');
+                setTimeout(function() {
+                    notice.slideUp();
+                }, 2000);
+            } else {
+                notice.html('❌ Error saving order: ' + response.data).css('background', '#f8d7da');
+            }
+        }).fail(function() {
+            notice.html('❌ Network error - please try again').css('background', '#f8d7da');
+        });
+    }
+    
+    function updateClueNumbers() {
+        jQuery('#sortable-clues-list .clue-item').each(function(index) {
+            var newNumber = index + 1;
+            jQuery(this).find('h4').html(function(i, html) {
+                return html.replace(/Clue #\d+/, 'Clue #' + newNumber);
+            });
+        });
+    }
+    
     function addNewClue(huntCode) {
         alert('Add New Clue functionality coming soon for hunt: ' + huntCode);
     }
@@ -6132,6 +6278,60 @@ function puzzlepath_save_clue_ajax() {
     wp_send_json_success('Clue updated successfully');
 }
 add_action('wp_ajax_save_clue', 'puzzlepath_save_clue_ajax');
+
+/**
+ * AJAX handler for reordering clues via drag and drop
+ */
+function puzzlepath_reorder_clues_ajax() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+    }
+    
+    if (!isset($_POST['clue_ids']) || !wp_verify_nonce($_POST['nonce'], 'reorder_clues_nonce')) {
+        wp_send_json_error('Invalid request');
+    }
+    
+    global $wpdb;
+    $clues_table = $wpdb->prefix . 'pp_clues';
+    
+    $clue_ids = $_POST['clue_ids']; // Array of clue IDs in new order
+    
+    if (!is_array($clue_ids) || empty($clue_ids)) {
+        wp_send_json_error('Invalid clue order data');
+    }
+    
+    // Begin transaction
+    $wpdb->query('START TRANSACTION');
+    
+    try {
+        // Update each clue's order based on its position in the array
+        foreach ($clue_ids as $index => $clue_id) {
+            $new_order = $index + 1; // Orders start from 1
+            
+            $result = $wpdb->update(
+                $clues_table,
+                ['clue_order' => $new_order],
+                ['id' => intval($clue_id)],
+                ['%d'],
+                ['%d']
+            );
+            
+            if ($result === false) {
+                throw new Exception('Failed to update clue order for clue ID: ' . $clue_id);
+            }
+        }
+        
+        // Commit transaction
+        $wpdb->query('COMMIT');
+        wp_send_json_success('Clue order updated successfully');
+        
+    } catch (Exception $e) {
+        // Rollback transaction on error
+        $wpdb->query('ROLLBACK');
+        wp_send_json_error('Database error: ' . $e->getMessage());
+    }
+}
+add_action('wp_ajax_reorder_clues', 'puzzlepath_reorder_clues_ajax');
 
 /**
  * AJAX handler to create new clue
