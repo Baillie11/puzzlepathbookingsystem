@@ -164,10 +164,12 @@ function puzzlepath_activate() {
         $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN medal_image_url varchar(500) DEFAULT NULL AFTER duration_minutes");
     }
     
-    // Add display_on_site column if it doesn't exist
+    // Add display_on_site column if it doesn't exist (default 1 = visible)
     $display_column_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'display_on_site'");
     if (empty($display_column_exists)) {
-        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN display_on_site tinyint(1) DEFAULT 0 AFTER medal_image_url");
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN display_on_site tinyint(1) DEFAULT 1 AFTER medal_image_url");
+        // Update existing quests to be visible by default
+        $wpdb->query("UPDATE {$wpdb->prefix}pp_events SET display_on_site = 1 WHERE display_on_site IS NULL OR display_on_site = 0");
     }
     
     // Add quest_type column for Walking/Driving classification
@@ -200,10 +202,21 @@ function puzzlepath_activate() {
         $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN quest_image_url varchar(500) DEFAULT NULL AFTER display_on_adventures_page");
     }
     
+    // Add sorting and priority columns
+    $sort_order_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'sort_order'");
+    if (empty($sort_order_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN sort_order int(11) DEFAULT 0 AFTER quest_image_url");
+    }
+    
+    $is_featured_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'is_featured'");
+    if (empty($is_featured_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN is_featured tinyint(1) DEFAULT 0 AFTER sort_order");
+    }
+    
     // Ensure unified app compatibility by updating existing bookings
     puzzlepath_fix_unified_app_compatibility();
     
-    update_option('puzzlepath_booking_version', '2.8.4');
+    update_option('puzzlepath_booking_version', '2.8.5');
 }
 
 register_activation_hook(__FILE__, 'puzzlepath_activate');
@@ -489,7 +502,7 @@ function puzzlepath_fix_unified_app_compatibility() {
  */
 function puzzlepath_update_db_check() {
     $current_version = get_option('puzzlepath_booking_version', '1.0');
-    if (version_compare($current_version, '2.8.4', '<')) {
+    if (version_compare($current_version, '2.8.5', '<')) {
         puzzlepath_activate();
         // Generate hunt codes for existing events that don't have them
         puzzlepath_generate_missing_hunt_codes();
@@ -498,6 +511,20 @@ function puzzlepath_update_db_check() {
     }
 }
 add_action('plugins_loaded', 'puzzlepath_update_db_check');
+
+/**
+ * Manual database update function - can be called via URL
+ */
+function puzzlepath_manual_db_update() {
+    if (isset($_GET['puzzlepath_update_db']) && current_user_can('manage_options')) {
+        if (wp_verify_nonce($_GET['nonce'], 'puzzlepath_manual_update')) {
+            puzzlepath_activate();
+            wp_redirect(admin_url('admin.php?page=puzzlepath-quests&message=db_updated'));
+            exit;
+        }
+    }
+}
+add_action('admin_init', 'puzzlepath_manual_db_update');
 
 /**
  * Force payment status migration on next admin page load (run once)
@@ -922,11 +949,13 @@ function puzzlepath_audit_log_page() {
     </div>
     
     <!-- Audit Details Modal -->
-    <div id="audit-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
-        <div style="background-color: #fefefe; margin: 50px auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 5px; max-height: 80vh; overflow-y: auto;">
-            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;" onclick="closeAuditDetails()">&times;</span>
-            <h2>Audit Entry Details</h2>
-            <div id="audit-details-content">
+    <div id="audit-details-modal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6);">
+        <div style="background-color: #fefefe; margin: 20px auto; padding: 0; border: 1px solid #888; width: 90%; max-width: 1000px; border-radius: 8px; max-height: 90vh; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+            <div style="background: #f8f9ff; padding: 20px; border-bottom: 1px solid #e0e3ff; display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0; color: #3F51B5;">Audit Entry Details</h2>
+                <span style="color: #666; font-size: 24px; font-weight: bold; cursor: pointer; padding: 5px 10px; border-radius: 4px; transition: background 0.2s;" onclick="closeAuditDetails()" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='transparent'">&times;</span>
+            </div>
+            <div id="audit-details-content" style="padding: 20px; max-height: calc(90vh - 80px); overflow-y: auto;">
                 Loading...
             </div>
         </div>
@@ -935,13 +964,37 @@ function puzzlepath_audit_log_page() {
     <script>
     function showAuditDetails(entryId) {
         document.getElementById('audit-details-modal').style.display = 'block';
-        document.getElementById('audit-details-content').innerHTML = 'Loading...';
+        document.getElementById('audit-details-content').innerHTML = '<div style="text-align: center; padding: 40px;"><div class="spinner is-active" style="float: none; margin: 0 auto;"></div><p style="margin-top: 15px;">Loading audit details...</p></div>';
         
-        // Here you could make an AJAX call to get detailed info
-        // For now, we'll just show a placeholder
-        document.getElementById('audit-details-content').innerHTML = 
-            '<p>Detailed audit information for entry ID: ' + entryId + '</p>' +
-            '<p><em>Full data viewing feature coming soon...</em></p>';
+        // Make AJAX call to get detailed audit information
+        jQuery.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: {
+                action: 'get_audit_details',
+                entry_id: entryId,
+                nonce: '<?php echo wp_create_nonce('audit_details_nonce'); ?>'
+            },
+            success: function(response) {
+                if (response.success) {
+                    document.getElementById('audit-details-content').innerHTML = response.data;
+                } else {
+                    document.getElementById('audit-details-content').innerHTML = 
+                        '<div style="padding: 20px; text-align: center; color: #d63638;">' +
+                        '<h3>Error Loading Details</h3>' +
+                        '<p>' + (response.data || 'Unknown error occurred') + '</p>' +
+                        '</div>';
+                }
+            },
+            error: function(xhr, status, error) {
+                document.getElementById('audit-details-content').innerHTML = 
+                    '<div style="padding: 20px; text-align: center; color: #d63638;">' +
+                    '<h3>Connection Error</h3>' +
+                    '<p>Failed to load audit details. Please try again.</p>' +
+                    '<small>Error: ' + error + '</small>' +
+                    '</div>';
+            }
+        });
     }
     
     function closeAuditDetails() {
@@ -957,6 +1010,196 @@ function puzzlepath_audit_log_page() {
     }
     </script>
     <?php
+}
+
+/**
+ * AJAX handler to get detailed audit entry information
+ */
+function puzzlepath_get_audit_details_ajax() {
+    // Check permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions.');
+    }
+    
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'audit_details_nonce')) {
+        wp_send_json_error('Invalid nonce.');
+    }
+    
+    $entry_id = isset($_POST['entry_id']) ? intval($_POST['entry_id']) : 0;
+    if ($entry_id <= 0) {
+        wp_send_json_error('Invalid entry ID.');
+    }
+    
+    global $wpdb;
+    $audit_entry = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}pp_booking_audit WHERE id = %d",
+        $entry_id
+    ), ARRAY_A);
+    
+    if (!$audit_entry) {
+        wp_send_json_error('Audit entry not found.');
+    }
+    
+    // Format the detailed view
+    $html = puzzlepath_format_audit_details($audit_entry);
+    
+    wp_send_json_success($html);
+}
+add_action('wp_ajax_get_audit_details', 'puzzlepath_get_audit_details_ajax');
+
+/**
+ * Format audit entry details for display
+ */
+function puzzlepath_format_audit_details($entry) {
+    $html = '<div class="audit-details">';
+    
+    // Header information
+    $html .= '<div class="audit-header" style="margin-bottom: 20px; padding: 15px; background: #f8f9ff; border-radius: 5px; border: 1px solid #e0e3ff;">';
+    $html .= '<h3 style="margin: 0 0 10px 0; color: #3F51B5;">Audit Entry #' . $entry['id'] . '</h3>';
+    $html .= '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">';
+    
+    // Left column
+    $html .= '<div>';
+    $html .= '<p><strong>Action:</strong> <span class="action-badge" style="background: #2271b1; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">' . esc_html($entry['action']) . '</span></p>';
+    $html .= '<p><strong>Date/Time:</strong> ' . date('F j, Y \a\t g:i:s A', strtotime($entry['created_at'])) . '</p>';
+    if ($entry['booking_code']) {
+        $html .= '<p><strong>Booking Code:</strong> <code style="background: #f1f1f1; padding: 2px 6px; border-radius: 3px;">' . esc_html($entry['booking_code']) . '</code></p>';
+    }
+    $html .= '</div>';
+    
+    // Right column
+    $html .= '<div>';
+    $html .= '<p><strong>User:</strong> ' . ($entry['user_login'] && $entry['user_login'] !== 'system' ? esc_html($entry['user_login']) : 'System') . '</p>';
+    if ($entry['user_email'] && $entry['user_email'] !== 'system') {
+        $html .= '<p><strong>Email:</strong> ' . esc_html($entry['user_email']) . '</p>';
+    }
+    $html .= '<p><strong>IP Address:</strong> ' . esc_html($entry['ip_address'] ?: 'N/A') . '</p>';
+    $html .= '</div>';
+    
+    $html .= '</div>';
+    $html .= '</div>';
+    
+    // Changed fields
+    if ($entry['changed_fields']) {
+        $html .= '<div class="changed-fields" style="margin-bottom: 20px;">';
+        $html .= '<h4 style="margin: 0 0 10px 0; color: #d63638;">Changed Fields:</h4>';
+        $html .= '<p style="background: #fff2f2; padding: 10px; border-radius: 4px; border: 1px solid #f0c2c2; margin: 0;">' . esc_html($entry['changed_fields']) . '</p>';
+        $html .= '</div>';
+    }
+    
+    // Notes
+    if ($entry['notes']) {
+        $html .= '<div class="notes" style="margin-bottom: 20px;">';
+        $html .= '<h4 style="margin: 0 0 10px 0; color: #2271b1;">Notes:</h4>';
+        $html .= '<p style="background: #f8f9ff; padding: 10px; border-radius: 4px; border: 1px solid #e0e3ff; margin: 0;">' . esc_html($entry['notes']) . '</p>';
+        $html .= '</div>';
+    }
+    
+    // Data comparison (Before/After)
+    $old_data = $entry['old_data'] ? json_decode($entry['old_data'], true) : null;
+    $new_data = $entry['new_data'] ? json_decode($entry['new_data'], true) : null;
+    
+    if ($old_data || $new_data) {
+        $html .= '<div class="data-comparison" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">';
+        
+        // Old data column
+        $html .= '<div class="old-data">';
+        $html .= '<h4 style="margin: 0 0 10px 0; color: #d63638;">Before (Old Data):</h4>';
+        if ($old_data) {
+            $html .= '<div style="background: #fff; border: 1px solid #ddd; border-radius: 4px; max-height: 300px; overflow-y: auto;">';
+            $html .= puzzlepath_format_data_table($old_data);
+            $html .= '</div>';
+        } else {
+            $html .= '<p style="color: #666; font-style: italic;">No previous data (new record)</p>';
+        }
+        $html .= '</div>';
+        
+        // New data column
+        $html .= '<div class="new-data">';
+        $html .= '<h4 style="margin: 0 0 10px 0; color: #00a32a;">After (New Data):</h4>';
+        if ($new_data) {
+            $html .= '<div style="background: #fff; border: 1px solid #ddd; border-radius: 4px; max-height: 300px; overflow-y: auto;">';
+            $html .= puzzlepath_format_data_table($new_data);
+            $html .= '</div>';
+        } else {
+            $html .= '<p style="color: #666; font-style: italic;">No new data (deleted record)</p>';
+        }
+        $html .= '</div>';
+        
+        $html .= '</div>';
+    }
+    
+    // Technical details (collapsible)
+    $html .= '<details style="margin-top: 20px; border: 1px solid #ddd; border-radius: 4px; padding: 10px;">';
+    $html .= '<summary style="cursor: pointer; font-weight: bold; padding: 5px 0;">Technical Details</summary>';
+    $html .= '<div style="margin-top: 10px; font-family: monospace; font-size: 12px;">';
+    $html .= '<p><strong>Entry ID:</strong> ' . $entry['id'] . '</p>';
+    $html .= '<p><strong>Booking ID:</strong> ' . $entry['booking_id'] . '</p>';
+    $html .= '<p><strong>User ID:</strong> ' . ($entry['user_id'] ?: 'N/A') . '</p>';
+    if ($entry['user_agent']) {
+        $html .= '<p><strong>User Agent:</strong> <br><code style="word-break: break-all;">' . esc_html($entry['user_agent']) . '</code></p>';
+    }
+    $html .= '<p><strong>Created At:</strong> ' . $entry['created_at'] . ' (UTC)</p>';
+    $html .= '</div>';
+    $html .= '</details>';
+    
+    $html .= '</div>';
+    
+    return $html;
+}
+
+/**
+ * Format data array as a readable table
+ */
+function puzzlepath_format_data_table($data) {
+    if (empty($data) || !is_array($data)) {
+        return '<p style="padding: 10px; color: #666; font-style: italic;">No data available</p>';
+    }
+    
+    $html = '<table style="width: 100%; border-collapse: collapse; font-size: 13px;">';
+    
+    foreach ($data as $key => $value) {
+        $html .= '<tr style="border-bottom: 1px solid #eee;">';
+        $html .= '<td style="padding: 8px; font-weight: bold; width: 35%; background: #f9f9f9; vertical-align: top;">' . esc_html(ucwords(str_replace('_', ' ', $key))) . '</td>';
+        
+        $html .= '<td style="padding: 8px; vertical-align: top;">';
+        if (is_null($value)) {
+            $html .= '<em style="color: #999;">NULL</em>';
+        } elseif (is_bool($value)) {
+            $html .= '<span style="color: ' . ($value ? '#00a32a' : '#d63638') . ';">' . ($value ? 'TRUE' : 'FALSE') . '</span>';
+        } elseif (is_numeric($value)) {
+            $html .= '<code>' . $value . '</code>';
+        } elseif (in_array($key, ['created_at', 'updated_at', 'booking_date', 'event_date'])) {
+            // Format dates nicely
+            if ($value) {
+                $formatted_date = date('F j, Y g:i A', strtotime($value));
+                $html .= $formatted_date . ' <small style="color: #666;">(' . esc_html($value) . ')</small>';
+            } else {
+                $html .= '<em style="color: #999;">Not set</em>';
+            }
+        } elseif ($key === 'total_price' && is_numeric($value)) {
+            $html .= '<strong>$' . number_format($value, 2) . '</strong>';
+        } elseif ($key === 'payment_status') {
+            $status_colors = ['pending' => '#dba617', 'paid' => '#00a32a', 'failed' => '#d63638', 'refunded' => '#8c8f94'];
+            $color = $status_colors[$value] ?? '#666';
+            $html .= '<span style="background: ' . $color . '; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; text-transform: uppercase;">' . esc_html($value) . '</span>';
+        } elseif (strlen($value) > 50) {
+            // Long text - truncate with expansion option
+            $html .= '<div class="long-text">';
+            $html .= '<div class="truncated">' . esc_html(substr($value, 0, 50)) . '... <a href="#" onclick="this.parentNode.style.display=\'none\'; this.parentNode.nextElementSibling.style.display=\'block\'; return false;" style="color: #2271b1;">[Show More]</a></div>';
+            $html .= '<div class="full" style="display: none;">' . esc_html($value) . ' <a href="#" onclick="this.parentNode.style.display=\'none\'; this.parentNode.previousElementSibling.style.display=\'block\'; return false;" style="color: #2271b1;">[Show Less]</a></div>';
+            $html .= '</div>';
+        } else {
+            $html .= esc_html($value ?: '');
+        }
+        $html .= '</td>';
+        $html .= '</tr>';
+    }
+    
+    $html .= '</table>';
+    
+    return $html;
 }
 
 
@@ -1489,21 +1732,88 @@ add_shortcode('puzzlepath_confirmation_test', 'puzzlepath_booking_confirmation_t
 
 /**
  * Shortcode to display upcoming adventures from database
- * Usage: [puzzlepath_upcoming_adventures]
+ * Shows quests where display_on_site = 1 (Status toggle = Active) and seats > 0
+ * Usage: [puzzlepath_upcoming_adventures sort="featured"]
+ * 
+ * Available sort options:
+ * - featured (default): Featured first, then hosted events, then by date
+ * - alphabetical: A-Z by title
+ * - alphabetical_desc: Z-A by title
+ * - price_low: Lowest price first
+ * - price_high: Highest price first
+ * - newest: Most recently created first
+ * - oldest: Oldest quests first
+ * - popular: Most bookings first
+ * - difficulty: Easy to Hard
+ * - location: Grouped by location
+ * - quest_type: Walking first, then driving
+ * - random: Random order
+ * - manual: Custom admin-defined order
  */
 function puzzlepath_upcoming_adventures_shortcode($atts) {
     global $wpdb;
     $events_table = 'wp2s_pp_events';
+    $bookings_table = 'wp2s_pp_bookings';
     
-    // Get all quests marked for display on adventures page
-    $quests = $wpdb->get_results(
-        "SELECT * FROM $events_table 
-         WHERE display_on_adventures_page = 1 AND seats > 0 
-         ORDER BY 
-             CASE WHEN hosting_type = 'hosted' THEN 0 ELSE 1 END,
-             event_date ASC,
-             title ASC"
-    );
+    // Parse shortcode attributes
+    $atts = shortcode_atts(array(
+        'sort' => 'featured', // Default sorting
+        'limit' => 50, // Maximum quests to show
+        'show_sort_dropdown' => 'false' // Whether to show user sorting dropdown
+    ), $atts, 'puzzlepath_upcoming_adventures');
+    
+    // Check for URL parameter to override sort (for frontend dropdown)
+    if (isset($_GET['quest_sort']) && !empty($_GET['quest_sort'])) {
+        $atts['sort'] = sanitize_text_field($_GET['quest_sort']);
+    }
+    
+    // Check if new columns exist (safety check)
+    global $wpdb;
+    $columns = $wpdb->get_col("SHOW COLUMNS FROM $events_table");
+    $has_sort_order = in_array('sort_order', $columns);
+    $has_is_featured = in_array('is_featured', $columns);
+    
+    // Build query with optional columns
+    $select_fields = "e.*";
+    if ($has_sort_order) {
+        $select_fields .= ", COALESCE(e.sort_order, 0) as sort_order";
+    } else {
+        $select_fields .= ", 0 as sort_order";
+    }
+    if ($has_is_featured) {
+        $select_fields .= ", COALESCE(e.is_featured, 0) as is_featured";
+    } else {
+        $select_fields .= ", 0 as is_featured";
+    }
+    
+    // Get all quests with booking statistics
+    $base_query = "
+        SELECT $select_fields, 
+               COALESCE(booking_stats.total_bookings, 0) as total_bookings,
+               COALESCE(booking_stats.recent_bookings, 0) as recent_bookings
+        FROM $events_table e
+        LEFT JOIN (
+            SELECT 
+                event_id,
+                COUNT(*) as total_bookings,
+                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) as recent_bookings
+            FROM $bookings_table
+            WHERE payment_status = 'paid'
+            GROUP BY event_id
+        ) booking_stats ON e.id = booking_stats.event_id
+        WHERE e.display_on_site = 1 AND e.seats > 0
+    ";
+    
+    // Add sorting based on the sort parameter
+    $order_clause = puzzlepath_get_sort_order($atts['sort']);
+    $final_query = $base_query . $order_clause;
+    
+    // Apply limit if specified
+    if ($atts['limit'] && is_numeric($atts['limit'])) {
+        $final_query .= " LIMIT " . intval($atts['limit']);
+    }
+    
+    $quests = $wpdb->get_results($final_query);
     
     if (empty($quests)) {
         return '<p>No upcoming adventures available at this time.</p>';
@@ -1532,6 +1842,24 @@ function puzzlepath_upcoming_adventures_shortcode($atts) {
     ?>
     <!-- PuzzlePath Adventures v2.8.4 Updated: <?php echo date('Y-m-d H:i:s'); ?> -->
     <div class="puzzle-adventures-container">
+        <?php if ($atts['show_sort_dropdown'] === 'true'): ?>
+        <div class="quest-sort-controls" style="margin-bottom: 20px; text-align: center;">
+            <label for="quest-sort" style="margin-right: 10px; font-weight: bold;">Sort by:</label>
+            <select id="quest-sort" onchange="puzzlepathSortQuests(this.value)" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; background: white;">
+                <option value="featured" <?php selected($atts['sort'], 'featured'); ?>>⭐ Featured</option>
+                <option value="alphabetical" <?php selected($atts['sort'], 'alphabetical'); ?>>🔤 A-Z</option>
+                <option value="alphabetical_desc" <?php selected($atts['sort'], 'alphabetical_desc'); ?>>🔤 Z-A</option>
+                <option value="price_low" <?php selected($atts['sort'], 'price_low'); ?>>💰 Price: Low to High</option>
+                <option value="price_high" <?php selected($atts['sort'], 'price_high'); ?>>💰 Price: High to Low</option>
+                <option value="popular" <?php selected($atts['sort'], 'popular'); ?>>📈 Most Popular</option>
+                <option value="newest" <?php selected($atts['sort'], 'newest'); ?>>🆕 Newest First</option>
+                <option value="difficulty" <?php selected($atts['sort'], 'difficulty'); ?>>⭐ By Difficulty</option>
+                <option value="location" <?php selected($atts['sort'], 'location'); ?>>📍 By Location</option>
+                <option value="quest_type" <?php selected($atts['sort'], 'quest_type'); ?>>🚶‍♂️ By Quest Type</option>
+            </select>
+            <small style="display: block; margin-top: 5px; color: #666;">Showing <?php echo count($quests); ?> quest(s)</small>
+        </div>
+        <?php endif; ?>
         <div class="adventures-grid-wrap">
             <div class="adventures-grid">
             <?php foreach ($quests as $quest): ?>
@@ -1568,6 +1896,9 @@ function puzzlepath_upcoming_adventures_shortcode($atts) {
                             
                             <!-- Quest Type & Difficulty -->
                             <div class="info-line">
+                                <?php if ($quest->is_featured): ?>
+                                    <span class="featured-badge" style="background: #FFD700; color: #000; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; margin-right: 8px;">⭐ FEATURED</span>
+                                <?php endif; ?>
                                 <?php if ($quest->quest_type === 'driving'): ?>
                                     <span class="info-icon">🚗</span>
                                     <span>Driving Quest</span>
@@ -1825,6 +2156,32 @@ function puzzlepath_upcoming_adventures_shortcode($atts) {
         }
     }
     </style>
+    
+    <?php if ($atts['show_sort_dropdown'] === 'true'): ?>
+    <script>
+    function puzzlepathSortQuests(sortBy) {
+        // Get current URL and update the sort parameter
+        var url = new URL(window.location);
+        url.searchParams.set('quest_sort', sortBy);
+        
+        // Reload the page with new sort parameter
+        window.location.href = url.toString();
+    }
+    
+    // Check for sort parameter in URL on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        var urlParams = new URLSearchParams(window.location.search);
+        var sortParam = urlParams.get('quest_sort');
+        if (sortParam) {
+            var sortSelect = document.getElementById('quest-sort');
+            if (sortSelect) {
+                sortSelect.value = sortParam;
+            }
+        }
+    });
+    </script>
+    <?php endif; ?>
+    
     <?php
     return ob_get_clean();
 }
@@ -1845,6 +2202,88 @@ function puzzlepath_force_shortcode_processing($content) {
     return $content;
 }
 add_filter('the_content', 'puzzlepath_force_shortcode_processing', 20);
+
+/**
+ * Get ORDER BY clause for quest sorting
+ */
+function puzzlepath_get_sort_order($sort_type) {
+    switch ($sort_type) {
+        case 'featured':
+            return " ORDER BY 
+                e.is_featured DESC,
+                CASE WHEN e.hosting_type = 'hosted' THEN 0 ELSE 1 END,
+                e.event_date ASC,
+                e.sort_order ASC,
+                e.title ASC";
+            
+        case 'alphabetical':
+            return " ORDER BY e.title ASC";
+            
+        case 'alphabetical_desc':
+            return " ORDER BY e.title DESC";
+            
+        case 'price_low':
+            return " ORDER BY e.price ASC, e.title ASC";
+            
+        case 'price_high':
+            return " ORDER BY e.price DESC, e.title ASC";
+            
+        case 'newest':
+            return " ORDER BY e.created_at DESC, e.title ASC";
+            
+        case 'oldest':
+            return " ORDER BY e.created_at ASC, e.title ASC";
+            
+        case 'popular':
+            return " ORDER BY booking_stats.total_bookings DESC, booking_stats.recent_bookings DESC, e.title ASC";
+            
+        case 'difficulty':
+            return " ORDER BY 
+                CASE e.difficulty 
+                    WHEN 'easy' THEN 1 
+                    WHEN 'moderate' THEN 2 
+                    WHEN 'hard' THEN 3 
+                    ELSE 4 
+                END ASC, e.title ASC";
+            
+        case 'location':
+            return " ORDER BY e.location ASC, e.title ASC";
+            
+        case 'quest_type':
+            return " ORDER BY 
+                CASE e.quest_type 
+                    WHEN 'walking' THEN 1 
+                    WHEN 'driving' THEN 2 
+                    ELSE 3 
+                END ASC, e.title ASC";
+            
+        case 'random':
+            return " ORDER BY RAND()";
+            
+        case 'manual':
+            return " ORDER BY e.sort_order ASC, e.title ASC";
+            
+        case 'duration':
+            return " ORDER BY 
+                CASE WHEN e.duration_minutes IS NULL THEN 1 ELSE 0 END,
+                e.duration_minutes ASC, 
+                e.title ASC";
+                
+        case 'event_date':
+            return " ORDER BY 
+                CASE WHEN e.event_date IS NULL THEN 1 ELSE 0 END,
+                e.event_date ASC, 
+                e.title ASC";
+            
+        default: // Default to featured
+            return " ORDER BY 
+                e.is_featured DESC,
+                CASE WHEN e.hosting_type = 'hosted' THEN 0 ELSE 1 END,
+                e.event_date ASC,
+                e.sort_order ASC,
+                e.title ASC";
+    }
+}
 
 /**
  * Debug function to check if our shortcodes are registered
@@ -5811,18 +6250,65 @@ function puzzlepath_quests_page() {
             </div>
         </div>
         
+        <!-- Search and Filter Controls -->
+        <div class="quest-controls" style="background: #fff; padding: 20px; margin-bottom: 20px; border: 1px solid #c3c4c7; border-radius: 4px;">
+            <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 300px;">
+                    <label for="quest-search" style="font-weight: 600; margin-right: 10px;">🔍 Search:</label>
+                    <input type="text" id="quest-search" placeholder="Search by quest name, code, or location..." 
+                           style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;" 
+                           onkeyup="filterQuests()" />
+                </div>
+                <div>
+                    <label for="status-filter" style="font-weight: 600; margin-right: 8px;">📊 Status:</label>
+                    <select id="status-filter" onchange="filterQuests()" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                        <option value="all">All Quests</option>
+                        <option value="active">✅ Active Only</option>
+                        <option value="hidden">❌ Hidden Only</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="type-filter" style="font-weight: 600; margin-right: 8px;">🎯 Type:</label>
+                    <select id="type-filter" onchange="filterQuests()" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                        <option value="all">All Types</option>
+                        <option value="hosted">🟢 Live Events</option>
+                        <option value="self-hosted">🔵 Anytime Quests</option>
+                    </select>
+                </div>
+                <div>
+                    <button onclick="clearFilters()" class="button" style="padding: 8px 16px;">🔄 Clear Filters</button>
+                </div>
+            </div>
+            <div id="quest-count-display" style="margin-top: 10px; font-style: italic; color: #666;">Showing all quests</div>
+        </div>
+        
         <!-- Quests Table -->
-        <table class="wp-list-table widefat fixed striped">
+        <table class="wp-list-table widefat fixed striped" id="quests-table">
             <thead>
                 <tr>
-                    <th>Quest Code</th>
-                    <th>Quest Name</th>
-                    <th>Location</th>
-                    <th>Quest Type</th>
+                    <th data-sort="quest_code" class="sortable-header">
+                        Quest Code
+                        <span class="sort-indicator"></span>
+                    </th>
+                    <th data-sort="quest_name" class="sortable-header">
+                        Quest Name
+                        <span class="sort-indicator"></span>
+                    </th>
+                    <th data-sort="location" class="sortable-header">
+                        Location
+                        <span class="sort-indicator"></span>
+                    </th>
+                    <th data-sort="is_hosted_event" class="sortable-header">
+                        Type
+                        <span class="sort-indicator"></span>
+                    </th>
                     <th>Clues</th>
                     <th>Duration</th>
                     <th>Completions</th>
-                    <th>Status</th>
+                    <th data-sort="is_hidden" class="sortable-header">
+                        Status
+                        <span class="sort-indicator"></span>
+                    </th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -5912,6 +6398,57 @@ function puzzlepath_quests_page() {
     .difficulty-medium { background: #dba617 !important; }
     .difficulty-hard { background: #d63638 !important; }
     .difficulty-expert { background: #8c8f94 !important; }
+    
+    /* Quest Management Search & Sort Styles */
+    .sortable-header {
+        transition: all 0.2s ease;
+        position: relative;
+        padding-right: 20px !important;
+    }
+    
+    .sortable-header:hover {
+        background-color: #f0f0f1 !important;
+        color: #2271b1 !important;
+    }
+    
+    .sort-indicator {
+        font-size: 12px;
+        font-weight: bold;
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+    
+    .quest-controls {
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    #quest-search:focus,
+    #status-filter:focus,
+    #type-filter:focus {
+        border-color: #2271b1;
+        box-shadow: 0 0 0 1px #2271b1;
+        outline: none;
+    }
+    
+    #quest-count-display {
+        font-size: 13px;
+        font-weight: 500;
+    }
+    
+    /* Responsive adjustments */
+    @media (max-width: 782px) {
+        .quest-controls > div:first-child {
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .quest-controls > div:first-child > div {
+            min-width: unset;
+            width: 100%;
+        }
+    }
     </style>
     
     <script>
@@ -6854,6 +7391,209 @@ function puzzlepath_quests_page() {
             addClueModal.style.display = 'none';
         }
     }
+    
+    // QUEST TABLE SEARCH AND SORTING FUNCTIONALITY
+    let questTableRows = [];
+    let currentSort = null;
+    let currentSortDirection = 'asc';
+    
+    // Initialize quest table on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        initQuestTable();
+    });
+    
+    function initQuestTable() {
+        const table = document.getElementById('quests-table');
+        if (!table) return;
+        
+        const tbody = table.querySelector('tbody');
+        questTableRows = Array.from(tbody.querySelectorAll('tr')).filter(row => !row.querySelector('td[colspan]'));
+        
+        // Add click handlers to sortable headers
+        document.querySelectorAll('.sortable-header').forEach(header => {
+            header.addEventListener('click', function() {
+                const sortBy = this.dataset.sort;
+                sortQuestsTable(sortBy);
+            });
+            
+            // Style sortable headers
+            header.style.cursor = 'pointer';
+            header.style.userSelect = 'none';
+            header.title = 'Click to sort';
+        });
+        
+        updateQuestCount();
+    }
+    
+    function filterQuests() {
+        const searchTerm = document.getElementById('quest-search').value.toLowerCase();
+        const statusFilter = document.getElementById('status-filter').value;
+        const typeFilter = document.getElementById('type-filter').value;
+        
+        let visibleCount = 0;
+        
+        questTableRows.forEach(row => {
+            const questCode = row.cells[0]?.textContent.toLowerCase() || '';
+            const questName = row.cells[1]?.textContent.toLowerCase() || '';
+            const location = row.cells[2]?.textContent.toLowerCase() || '';
+            const statusCell = row.cells[7]?.querySelector('.quest-status')?.textContent || '';
+            const typeCell = row.cells[3]?.textContent.toLowerCase() || '';
+            
+            // Search filter
+            const matchesSearch = searchTerm === '' || 
+                questCode.includes(searchTerm) || 
+                questName.includes(searchTerm) || 
+                location.includes(searchTerm);
+            
+            // Status filter
+            let matchesStatus = true;
+            if (statusFilter === 'active') {
+                matchesStatus = statusCell.includes('ACTIVE');
+            } else if (statusFilter === 'hidden') {
+                matchesStatus = statusCell.includes('HIDDEN');
+            }
+            
+            // Type filter
+            let matchesType = true;
+            if (typeFilter === 'hosted') {
+                matchesType = typeCell.includes('live');
+            } else if (typeFilter === 'self-hosted') {
+                matchesType = typeCell.includes('anytime');
+            }
+            
+            const shouldShow = matchesSearch && matchesStatus && matchesType;
+            row.style.display = shouldShow ? '' : 'none';
+            
+            if (shouldShow) visibleCount++;
+        });
+        
+        updateQuestCount(visibleCount);
+    }
+    
+    function clearFilters() {
+        document.getElementById('quest-search').value = '';
+        document.getElementById('status-filter').value = 'all';
+        document.getElementById('type-filter').value = 'all';
+        filterQuests();
+    }
+    
+    function sortQuestsTable(sortBy) {
+        const table = document.getElementById('quests-table');
+        const tbody = table.querySelector('tbody');
+        
+        // Update sort direction
+        if (currentSort === sortBy) {
+            currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSortDirection = 'asc';
+        }
+        currentSort = sortBy;
+        
+        // Update visual indicators
+        updateSortIndicators(sortBy, currentSortDirection);
+        
+        // Get column index for sorting
+        let columnIndex;
+        const headers = document.querySelectorAll('.sortable-header');
+        headers.forEach((header, index) => {
+            if (header.dataset.sort === sortBy) {
+                columnIndex = index;
+            }
+        });
+        
+        // Sort rows
+        const sortedRows = [...questTableRows].sort((a, b) => {
+            let aValue = '';
+            let bValue = '';
+            
+            switch (sortBy) {
+                case 'quest_code':
+                    aValue = a.cells[0]?.textContent.trim() || '';
+                    bValue = b.cells[0]?.textContent.trim() || '';
+                    break;
+                case 'quest_name':
+                    aValue = a.cells[1]?.textContent.trim() || '';
+                    bValue = b.cells[1]?.textContent.trim() || '';
+                    break;
+                case 'location':
+                    aValue = a.cells[2]?.textContent.trim() || '';
+                    bValue = b.cells[2]?.textContent.trim() || '';
+                    break;
+                case 'is_hosted_event':
+                    const aType = a.cells[3]?.textContent.toLowerCase() || '';
+                    const bType = b.cells[3]?.textContent.toLowerCase() || '';
+                    aValue = aType.includes('live') ? 'hosted' : 'self';
+                    bValue = bType.includes('live') ? 'hosted' : 'self';
+                    break;
+                case 'is_hidden':
+                    const aStatus = a.cells[7]?.querySelector('.quest-status')?.textContent || '';
+                    const bStatus = b.cells[7]?.querySelector('.quest-status')?.textContent || '';
+                    aValue = aStatus.includes('ACTIVE') ? 'active' : 'hidden';
+                    bValue = bStatus.includes('ACTIVE') ? 'active' : 'hidden';
+                    break;
+                default:
+                    aValue = a.cells[columnIndex]?.textContent.trim() || '';
+                    bValue = b.cells[columnIndex]?.textContent.trim() || '';
+            }
+            
+            // Natural sort for strings with numbers
+            const comparison = aValue.localeCompare(bValue, undefined, {
+                numeric: true,
+                sensitivity: 'base'
+            });
+            
+            return currentSortDirection === 'asc' ? comparison : -comparison;
+        });
+        
+        // Clear and re-append sorted rows
+        tbody.innerHTML = '';
+        
+        // Check if we have any quests
+        if (questTableRows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px;">No quests found. <a href="#" onclick="showAddQuestModal()">Create your first quest</a>.</td></tr>';
+        } else {
+            sortedRows.forEach(row => tbody.appendChild(row));
+        }
+        
+        // Refresh the quest rows array with new order
+        questTableRows = Array.from(tbody.querySelectorAll('tr')).filter(row => !row.querySelector('td[colspan]'));
+        
+        // Re-apply filters to maintain visibility
+        filterQuests();
+    }
+    
+    function updateSortIndicators(activeSort, direction) {
+        // Clear all indicators
+        document.querySelectorAll('.sort-indicator').forEach(indicator => {
+            indicator.innerHTML = '';
+            indicator.parentElement.style.color = '';
+        });
+        
+        // Set active indicator
+        const activeHeader = document.querySelector(`[data-sort="${activeSort}"]`);
+        if (activeHeader) {
+            const indicator = activeHeader.querySelector('.sort-indicator');
+            indicator.innerHTML = direction === 'asc' ? ' ↑' : ' ↓';
+            activeHeader.style.color = '#2271b1';
+            activeHeader.style.fontWeight = 'bold';
+        }
+    }
+    
+    function updateQuestCount(visibleCount = null) {
+        const display = document.getElementById('quest-count-display');
+        const total = questTableRows.length;
+        
+        if (visibleCount === null) {
+            display.textContent = `Showing all ${total} quest${total !== 1 ? 's' : ''}`;
+        } else if (visibleCount === total) {
+            display.textContent = `Showing all ${total} quest${total !== 1 ? 's' : ''}`;
+        } else {
+            display.textContent = `Showing ${visibleCount} of ${total} quest${total !== 1 ? 's' : ''}`;
+        }
+        
+        // Update display color based on filter status
+        display.style.color = visibleCount !== null && visibleCount < total ? '#d63638' : '#666';
+    }
     </script>
     <?php
 }
@@ -7134,6 +7874,131 @@ function puzzlepath_email_settings_page() {
                 <a href="<?php echo admin_url('admin.php?page=puzzlepath-coupons'); ?>" class="button">Manage Coupons</a>
                 <a href="<?php echo admin_url('admin.php?page=puzzlepath-stripe-settings'); ?>" class="button">Stripe Settings</a>
             </p>
+        </div>
+        
+        <!-- PuzzlePath Shortcode Reference -->
+        <div class="card">
+            <h2>🎯 PuzzlePath Shortcode Reference</h2>
+            <p>Copy and paste these shortcodes to display PuzzlePath content on any page or post:</p>
+            
+            <h3>📋 Quest Display Shortcodes</h3>
+            <div style="margin-bottom: 20px;">
+                <h4>Basic Quest Display</h4>
+                <code style="background: #f1f1f1; padding: 4px 8px; border-radius: 4px; font-family: monospace;">[puzzlepath_upcoming_adventures]</code>
+                <p class="description">Shows all active quests using the default "featured" sorting.</p>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <h4>Quest Display with User Sorting</h4>
+                <code style="background: #f1f1f1; padding: 4px 8px; border-radius: 4px; font-family: monospace;">[puzzlepath_upcoming_adventures show_sort_dropdown="true"]</code>
+                <p class="description">Shows quests with a dropdown menu allowing users to sort by preference.</p>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <h4>Limited Quest Display</h4>
+                <code style="background: #f1f1f1; padding: 4px 8px; border-radius: 4px; font-family: monospace;">[puzzlepath_upcoming_adventures sort="featured" limit="4"]</code>
+                <p class="description">Shows only the top 4 featured quests (great for homepage).</p>
+            </div>
+            
+            <h3>🔤 Available Sort Options</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin: 20px 0;">
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>⭐ Featured:</strong> <code>sort="featured"</code><br>
+                    <small>Featured quests first, then hosted events</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>📈 Popular:</strong> <code>sort="popular"</code><br>
+                    <small>Most bookings first (social proof)</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>💰 Price Low:</strong> <code>sort="price_low"</code><br>
+                    <small>Cheapest quests first</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>💰 Price High:</strong> <code>sort="price_high"</code><br>
+                    <small>Most expensive quests first</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>🔤 A-Z:</strong> <code>sort="alphabetical"</code><br>
+                    <small>Alphabetical by quest name</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>🔤 Z-A:</strong> <code>sort="alphabetical_desc"</code><br>
+                    <small>Reverse alphabetical</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>🆕 Newest:</strong> <code>sort="newest"</code><br>
+                    <small>Most recently created first</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>📅 Oldest:</strong> <code>sort="oldest"</code><br>
+                    <small>Oldest quests first</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>⭐ Difficulty:</strong> <code>sort="difficulty"</code><br>
+                    <small>Easy to hard (family-friendly)</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>📍 Location:</strong> <code>sort="location"</code><br>
+                    <small>Grouped by geographic area</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>🚶‍♂️ Quest Type:</strong> <code>sort="quest_type"</code><br>
+                    <small>Walking quests first, then driving</small>
+                </div>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <strong>🎲 Random:</strong> <code>sort="random"</code><br>
+                    <small>Random order (fresh on repeat visits)</small>
+                </div>
+            </div>
+            
+            <h3>📝 Booking & Confirmation Shortcodes</h3>
+            <div style="margin-bottom: 20px;">
+                <h4>Booking Form</h4>
+                <code style="background: #f1f1f1; padding: 4px 8px; border-radius: 4px; font-family: monospace;">[puzzlepath_booking_form]</code>
+                <p class="description">Displays the complete booking form with Stripe payment integration.</p>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <h4>Booking Confirmation</h4>
+                <code style="background: #f1f1f1; padding: 4px 8px; border-radius: 4px; font-family: monospace;">[puzzlepath_booking_confirmation]</code>
+                <p class="description">Shows booking confirmation details (use on your confirmation page).</p>
+            </div>
+            
+            <h3>🎯 Example Usage Scenarios</h3>
+            <ul style="list-style-type: none; padding: 0;">
+                <li style="margin-bottom: 15px; padding: 15px; background: #e8f4fd; border-left: 4px solid #3F51B5; border-radius: 4px;">
+                    <strong>🏠 Homepage:</strong><br>
+                    <code>[puzzlepath_upcoming_adventures sort="featured" limit="4"]</code><br>
+                    <small>Shows your best 4 quests to entice visitors</small>
+                </li>
+                <li style="margin-bottom: 15px; padding: 15px; background: #f0f9ff; border-left: 4px solid #2196F3; border-radius: 4px;">
+                    <strong>👨‍👩‍👧‍👦 Family Page:</strong><br>
+                    <code>[puzzlepath_upcoming_adventures sort="difficulty"]</code><br>
+                    <small>Easy quests first to build confidence for families</small>
+                </li>
+                <li style="margin-bottom: 15px; padding: 15px; background: #f3e8ff; border-left: 4px solid #9C27B0; border-radius: 4px;">
+                    <strong>💰 Budget Page:</strong><br>
+                    <code>[puzzlepath_upcoming_adventures sort="price_low" show_sort_dropdown="true"]</code><br>
+                    <small>Cheapest first with user sorting options</small>
+                </li>
+                <li style="margin-bottom: 15px; padding: 15px; background: #e8f5e8; border-left: 4px solid #4CAF50; border-radius: 4px;">
+                    <strong>🎯 Full Quest Page:</strong><br>
+                    <code>[puzzlepath_upcoming_adventures show_sort_dropdown="true"]</code><br>
+                    <small>Let users explore and sort by their preference</small>
+                </li>
+            </ul>
+            
+            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin-top: 20px;">
+                <h4 style="margin-top: 0;">💡 Pro Tips:</h4>
+                <ul>
+                    <li>Use <strong>"featured"</strong> sort for maximum control over quest positioning</li>
+                    <li>Add <strong>limit="X"</strong> to show only X number of quests</li>
+                    <li>Use <strong>show_sort_dropdown="true"</strong> to let users choose their sorting preference</li>
+                    <li>Different sorting options are great for different audience types</li>
+                    <li>Mark important quests as "Featured" in the quest editor for priority display</li>
+                </ul>
+            </div>
         </div>
     </div>
     
