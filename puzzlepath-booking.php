@@ -5184,12 +5184,21 @@ function puzzlepath_get_quest_details_ajax() {
             </td>
         </tr>
         <?php endif; ?>
+        <?php if ($quest->quest_image_url): ?>
+        <tr>
+            <th>Quest Image:</th>
+            <td>
+                <img src="<?php echo esc_url($quest->quest_image_url); ?>" alt="Quest Image" style="max-width: 200px; max-height: 200px; border: 2px solid #ddd; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" />
+                <p><small><a href="<?php echo esc_url($quest->quest_image_url); ?>" target="_blank">View full size</a> · Displayed on public quest listings</small></p>
+            </td>
+        </tr>
+        <?php endif; ?>
         <?php if ($quest->medal_image_url): ?>
         <tr>
             <th>Medal Image:</th>
             <td>
                 <img src="<?php echo esc_url($quest->medal_image_url); ?>" alt="Quest Medal" style="max-width: 120px; max-height: 120px; border: 2px solid #ddd; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" />
-                <p><small><a href="<?php echo esc_url($quest->medal_image_url); ?>" target="_blank">View full size</a></small></p>
+                <p><small><a href="<?php echo esc_url($quest->medal_image_url); ?>" target="_blank">View full size</a> · Completion reward</small></p>
             </td>
         </tr>
         <?php endif; ?>
@@ -5332,6 +5341,25 @@ function puzzlepath_get_edit_quest_form_ajax() {
                 </td>
             </tr>
             <tr>
+                <th><label for="edit-quest-image">Quest Image:</label></th>
+                <td>
+                    <div id="quest-image-container">
+                        <?php if ($quest->quest_image_url): ?>
+                            <div id="current-quest-image" style="margin-bottom: 10px;">
+                                <img src="<?php echo esc_url($quest->quest_image_url); ?>" alt="Current Quest Image" style="max-width: 200px; max-height: 200px; border: 2px solid #ddd; border-radius: 5px;" />
+                                <p><small>Current quest image (displayed on public quest listings)</small></p>
+                            </div>
+                        <?php endif; ?>
+                        <input type="file" id="edit-quest-image" name="quest_image" accept="image/*" style="margin-bottom: 5px;" />
+                        <input type="hidden" id="edit-quest-image-url" name="quest_image_url" value="<?php echo esc_attr($quest->quest_image_url ?: ''); ?>" />
+                        <p class="description">Upload the main quest image (shown on quest listings - JPG, PNG, GIF - max 4MB)</p>
+                        <?php if ($quest->quest_image_url): ?>
+                            <p><button type="button" class="button" onclick="removeQuestImage()">Remove Current Image</button></p>
+                        <?php endif; ?>
+                    </div>
+                </td>
+            </tr>
+            <tr>
                 <th><label for="edit-medal-image">Medal Image:</label></th>
                 <td>
                     <div id="medal-image-container">
@@ -5405,8 +5433,20 @@ function puzzlepath_save_quest_changes_ajax() {
     $seats = intval($_POST['seats']);
     $duration_minutes = !empty($_POST['duration_minutes']) ? intval($_POST['duration_minutes']) : null;
     $medal_image_url = sanitize_text_field($_POST['medal_image_url']);
+    $quest_image_url = sanitize_text_field($_POST['quest_image_url']);
     $display_on_site = isset($_POST['display_on_site']) ? 1 : 0;
     $event_date = !empty($_POST['event_date']) ? sanitize_text_field($_POST['event_date']) : null;
+    
+    // Handle quest image upload
+    if (!empty($_FILES['quest_image']['name'])) {
+        $upload_result = puzzlepath_handle_quest_image_upload($_FILES['quest_image']);
+        if ($upload_result['success']) {
+            $quest_image_url = $upload_result['url'];
+        } else {
+            wp_send_json_error('Quest image upload failed: ' . $upload_result['error']);
+            return;
+        }
+    }
     
     // Handle medal image upload
     if (!empty($_FILES['medal_image']['name'])) {
@@ -5439,6 +5479,7 @@ function puzzlepath_save_quest_changes_ajax() {
         'price' => $price,
         'seats' => $seats,
         'duration_minutes' => $duration_minutes,
+        'quest_image_url' => $quest_image_url,
         'medal_image_url' => $medal_image_url,
         'display_on_site' => $display_on_site
     ];
@@ -5454,7 +5495,7 @@ function puzzlepath_save_quest_changes_ajax() {
         $events_table,
         $update_data,
         ['id' => $quest_id],
-        ['%s', '%s', '%s', '%s', '%f', '%d', '%d', '%s', '%d'],
+        ['%s', '%s', '%s', '%s', '%f', '%d', '%d', '%s', '%s', '%d'],
         ['%d']
     );
     
@@ -7282,6 +7323,15 @@ function puzzlepath_quests_page() {
         }
     }
     
+    // Quest Image Functions
+    function removeQuestImage() {
+        if (confirm('Are you sure you want to remove the current quest image?')) {
+            document.getElementById('current-quest-image').style.display = 'none';
+            document.getElementById('edit-quest-image-url').value = '';
+            document.getElementById('edit-quest-image').value = '';
+        }
+    }
+    
     // Handle medal image file selection
     document.addEventListener('DOMContentLoaded', function() {
         // Add event listener when the edit modal content is loaded
@@ -7317,6 +7367,45 @@ function puzzlepath_quests_page() {
                                      '<p><small>New medal image (preview)</small></p>' +
                                      '</div>';
                         document.getElementById('medal-image-container').insertAdjacentHTML('afterbegin', preview);
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        // Add event listener for quest image file selection
+        jQuery(document).on('change', '#edit-quest-image', function(e) {
+            var file = e.target.files[0];
+            if (file) {
+                // Validate file size (4MB max)
+                if (file.size > 4 * 1024 * 1024) {
+                    alert('File size must be less than 4MB');
+                    e.target.value = '';
+                    return;
+                }
+                
+                // Validate file type
+                if (!file.type.match('image.*')) {
+                    alert('Please select a valid image file');
+                    e.target.value = '';
+                    return;
+                }
+                
+                // Show preview
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    var currentImage = document.getElementById('current-quest-image');
+                    if (currentImage) {
+                        currentImage.querySelector('img').src = e.target.result;
+                        currentImage.querySelector('p small').textContent = 'New quest image (preview)';
+                        currentImage.style.display = 'block';
+                    } else {
+                        // Create preview if none exists
+                        var preview = '<div id="current-quest-image" style="margin-bottom: 10px;">' +
+                                     '<img src="' + e.target.result + '" alt="Quest Preview" style="max-width: 200px; max-height: 200px; border: 2px solid #ddd; border-radius: 5px;" />' +
+                                     '<p><small>New quest image (preview)</small></p>' +
+                                     '</div>';
+                        document.getElementById('quest-image-container').insertAdjacentHTML('afterbegin', preview);
                     }
                 };
                 reader.readAsDataURL(file);
@@ -7640,6 +7729,65 @@ function puzzlepath_handle_medal_image_upload($file) {
     // Generate unique filename
     $file_extension = pathinfo($file['name'], PATHINFO_EXTENSION);
     $filename = 'medal-' . time() . '-' . wp_generate_password(8, false) . '.' . $file_extension;
+    $file_path = $puzzlepath_dir . '/' . $filename;
+    
+    // Move uploaded file
+    if (move_uploaded_file($file['tmp_name'], $file_path)) {
+        return [
+            'success' => true,
+            'url' => $puzzlepath_url . '/' . $filename,
+            'path' => $file_path
+        ];
+    } else {
+        return [
+            'success' => false,
+            'error' => 'Failed to move uploaded file'
+        ];
+    }
+}
+
+/**
+ * Handle quest image upload
+ */
+function puzzlepath_handle_quest_image_upload($file) {
+    // Check for upload errors
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        return [
+            'success' => false,
+            'error' => 'Upload error: ' . $file['error']
+        ];
+    }
+    
+    // Validate file size (4MB max)
+    if ($file['size'] > 4 * 1024 * 1024) {
+        return [
+            'success' => false,
+            'error' => 'File size must be less than 4MB'
+        ];
+    }
+    
+    // Validate file type
+    $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!in_array($file['type'], $allowed_types)) {
+        return [
+            'success' => false,
+            'error' => 'Invalid file type. Only JPG, PNG, GIF, and WebP are allowed.'
+        ];
+    }
+    
+    // Set up upload directory
+    $upload_dir = wp_upload_dir();
+    $puzzlepath_dir = $upload_dir['basedir'] . '/puzzlepath-quests';
+    $puzzlepath_url = $upload_dir['baseurl'] . '/puzzlepath-quests';
+    
+    // Create directory if it doesn't exist
+    if (!file_exists($puzzlepath_dir)) {
+        wp_mkdir_p($puzzlepath_dir);
+    }
+    
+    // Generate unique filename
+    $file_extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+    $filename = 'quest-' . time() . '-' . wp_generate_password(8, false) . '.' . $file_extension;
     $file_path = $puzzlepath_dir . '/' . $filename;
     
     // Move uploaded file
