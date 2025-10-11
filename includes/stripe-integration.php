@@ -226,7 +226,29 @@ class PuzzlePath_Stripe_Integration {
         add_filter('wp_mail_from_name', 'puzzlepath_get_sender_name');
         
         $sender_name = puzzlepath_get_sender_name();
-        $message = "Dear {$booking->customer_name},\n\nThank you for your booking!\n\nBooking Details:\nEvent: {$event_title}\nDate: {$event_date}\nPrice: $".$booking->total_price."\nBooking Code: {$booking_code}\n\nRegards,\n{$sender_name}";
+        
+        // Build message with starting location info if available
+        $message = "Dear {$booking->customer_name},\n\nThank you for your booking!\n\nBooking Details:\nEvent: {$event_title}\nDate: {$event_date}\nPrice: $".$booking->total_price."\nBooking Code: {$booking_code}\n\n";
+        
+        // Add starting location information if available
+        if ($event->start_location_name) {
+            $message .= "IMPORTANT - WHERE TO GO FIRST:\n";
+            $message .= "Please go to: {$event->start_location_name}\n";
+            
+            if ($event->start_location_address) {
+                $message .= "Address: {$event->start_location_address}\n";
+            }
+            
+            if ($event->start_location_instructions) {
+                $message .= "Instructions: {$event->start_location_instructions}\n";
+            } else {
+                $message .= "Once you arrive, open the PuzzlePath app and tap 'Start Quest' to begin!\n";
+            }
+            
+            $message .= "\n";
+        }
+        
+        $message .= "Regards,\n{$sender_name}";
         
         wp_mail($to, $subject, $message);
         

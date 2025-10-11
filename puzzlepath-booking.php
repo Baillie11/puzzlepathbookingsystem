@@ -135,6 +135,9 @@ function puzzlepath_activate() {
             e.title as event_title,
             e.location,
             e.event_date,
+            e.start_location_name,
+            e.start_location_address,
+            e.start_location_instructions,
             b.customer_name,
             b.customer_email,
             b.participant_names,
@@ -213,10 +216,26 @@ function puzzlepath_activate() {
         $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN is_featured tinyint(1) DEFAULT 0 AFTER sort_order");
     }
     
+    // Add starting location fields for designated meeting points (cafe, pub, etc.)
+    $start_location_name_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'start_location_name'");
+    if (empty($start_location_name_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN start_location_name varchar(255) DEFAULT NULL AFTER is_featured");
+    }
+    
+    $start_location_address_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'start_location_address'");
+    if (empty($start_location_address_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN start_location_address text DEFAULT NULL AFTER start_location_name");
+    }
+    
+    $start_location_instructions_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_events LIKE 'start_location_instructions'");
+    if (empty($start_location_instructions_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN start_location_instructions text DEFAULT NULL AFTER start_location_address");
+    }
+    
     // Ensure unified app compatibility by updating existing bookings
     puzzlepath_fix_unified_app_compatibility();
     
-    update_option('puzzlepath_booking_version', '2.8.5');
+    update_option('puzzlepath_booking_version', '2.8.6');
 }
 
 register_activation_hook(__FILE__, 'puzzlepath_activate');
@@ -502,12 +521,12 @@ function puzzlepath_fix_unified_app_compatibility() {
  */
 function puzzlepath_update_db_check() {
     $current_version = get_option('puzzlepath_booking_version', '1.0');
-    if (version_compare($current_version, '2.8.5', '<')) {
+    if (version_compare($current_version, '2.8.6', '<')) {
         puzzlepath_activate();
         // Generate hunt codes for existing events that don't have them
         puzzlepath_generate_missing_hunt_codes();
-        // Update payment statuses for existing bookings
-        puzzlepath_update_payment_statuses();
+        // Fix unified app compatibility
+        puzzlepath_fix_unified_app_compatibility();
     }
 }
 add_action('plugins_loaded', 'puzzlepath_update_db_check');
@@ -1891,8 +1910,20 @@ function puzzlepath_upcoming_adventures_shortcode($atts) {
                             <!-- Starting Location -->
                             <div class="info-line">
                                 <span class="info-icon">📍</span>
-                                <span><strong>Starts:</strong> <?php echo esc_html($quest->location); ?></span>
+                                <?php if ($quest->start_location_name): ?>
+                                    <span><strong>Meet at:</strong> <?php echo esc_html($quest->start_location_name); ?></span>
+                                <?php else: ?>
+                                    <span><strong>Area:</strong> <?php echo esc_html($quest->location); ?></span>
+                                <?php endif; ?>
                             </div>
+                            
+                            <?php if ($quest->start_location_name && $quest->start_location_address): ?>
+                            <!-- Starting Address -->
+                            <div class="info-line">
+                                <span class="info-icon">🗺️</span>
+                                <span style="font-size: 13px; color: #666;"><?php echo esc_html($quest->start_location_address); ?></span>
+                            </div>
+                            <?php endif; ?>
                             
                             <!-- Quest Type & Difficulty -->
                             <div class="info-line">
@@ -5139,9 +5170,32 @@ function puzzlepath_get_quest_details_ajax() {
         </tr>
         <?php endif; ?>
         <tr>
-            <th>Location:</th>
+            <th>Quest Area:</th>
             <td><?php echo esc_html($quest->location); ?></td>
         </tr>
+        <?php if ($quest->start_location_name): ?>
+        <tr style="background: #f9f9f9;">
+            <td colspan="2" style="padding: 10px; font-weight: bold; color: #2271b1; border-top: 2px solid #e1e1e1; border-bottom: 1px solid #e1e1e1;">
+                📍 Starting Location
+            </td>
+        </tr>
+        <tr>
+            <th>Meeting Point:</th>
+            <td><strong><?php echo esc_html($quest->start_location_name); ?></strong></td>
+        </tr>
+        <?php if ($quest->start_location_address): ?>
+        <tr>
+            <th>Address:</th>
+            <td><?php echo nl2br(esc_html($quest->start_location_address)); ?></td>
+        </tr>
+        <?php endif; ?>
+        <?php if ($quest->start_location_instructions): ?>
+        <tr>
+            <th>Instructions:</th>
+            <td><?php echo nl2br(esc_html($quest->start_location_instructions)); ?></td>
+        </tr>
+        <?php endif; ?>
+        <?php endif; ?>
         <tr>
             <th>Quest Type:</th>
             <td><span style="background: <?php echo $quest->hosting_type === 'hosted' ? '#00a32a' : '#2271b1'; ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
@@ -5306,8 +5360,38 @@ function puzzlepath_get_edit_quest_form_ajax() {
                 <td><input type="text" id="edit-hunt-name" name="hunt_name" value="<?php echo esc_attr($quest->hunt_name); ?>" class="regular-text" /></td>
             </tr>
             <tr>
-                <th><label for="edit-location">Location:</label></th>
-                <td><input type="text" id="edit-location" name="location" value="<?php echo esc_attr($quest->location); ?>" class="regular-text" required /></td>
+                <th><label for="edit-location">Quest Area/Region:</label></th>
+                <td>
+                    <input type="text" id="edit-location" name="location" value="<?php echo esc_attr($quest->location); ?>" class="regular-text" required />
+                    <p class="description">General area or region for the quest (e.g., "Sunbury Town Center")</p>
+                </td>
+            </tr>
+            <tr style="background: #f9f9f9;">
+                <td colspan="2" style="padding: 15px; font-weight: bold; color: #2271b1; border-top: 2px solid #e1e1e1;">
+                    📍 Starting Location Details
+                    <p style="font-weight: normal; color: #666; margin: 5px 0 0 0; font-size: 13px;">Where hunters should go first before starting the quest (e.g., a cafe, pub, or meeting point)</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="edit-start-location-name">Starting Location Name:</label></th>
+                <td>
+                    <input type="text" id="edit-start-location-name" name="start_location_name" value="<?php echo esc_attr($quest->start_location_name ?: ''); ?>" class="regular-text" placeholder="e.g., The Coffee Club, Murphy's Pub" />
+                    <p class="description">Name of the cafe, pub, or meeting point where hunters should gather first</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="edit-start-location-address">Starting Location Address:</label></th>
+                <td>
+                    <textarea id="edit-start-location-address" name="start_location_address" class="large-text" rows="2" placeholder="e.g., 123 Main Street, Sunbury VIC 3429"><?php echo esc_textarea($quest->start_location_address ?: ''); ?></textarea>
+                    <p class="description">Full address that hunters can enter into GPS/Google Maps</p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="edit-start-location-instructions">Starting Location Instructions:</label></th>
+                <td>
+                    <textarea id="edit-start-location-instructions" name="start_location_instructions" class="large-text" rows="3" placeholder="e.g., Meet inside the cafe near the front counter. Order a coffee and wait for other hunters. Open the app and tap 'Start Quest' when you're ready to begin!"><?php echo esc_textarea($quest->start_location_instructions ?: ''); ?></textarea>
+                    <p class="description">Instructions for what to do when they arrive (optional but recommended)</p>
+                </td>
             </tr>
             <tr>
                 <th><label for="edit-hosting-type">Quest Type:</label></th>
@@ -5437,6 +5521,11 @@ function puzzlepath_save_quest_changes_ajax() {
     $display_on_site = isset($_POST['display_on_site']) ? 1 : 0;
     $event_date = !empty($_POST['event_date']) ? sanitize_text_field($_POST['event_date']) : null;
     
+    // Starting location fields
+    $start_location_name = sanitize_text_field($_POST['start_location_name']);
+    $start_location_address = sanitize_textarea_field($_POST['start_location_address']);
+    $start_location_instructions = sanitize_textarea_field($_POST['start_location_instructions']);
+    
     // Handle quest image upload
     if (!empty($_FILES['quest_image']['name'])) {
         $upload_result = puzzlepath_handle_quest_image_upload($_FILES['quest_image']);
@@ -5481,7 +5570,10 @@ function puzzlepath_save_quest_changes_ajax() {
         'duration_minutes' => $duration_minutes,
         'quest_image_url' => $quest_image_url,
         'medal_image_url' => $medal_image_url,
-        'display_on_site' => $display_on_site
+        'display_on_site' => $display_on_site,
+        'start_location_name' => $start_location_name,
+        'start_location_address' => $start_location_address,
+        'start_location_instructions' => $start_location_instructions
     ];
     
     if ($event_date) {
@@ -5495,7 +5587,7 @@ function puzzlepath_save_quest_changes_ajax() {
         $events_table,
         $update_data,
         ['id' => $quest_id],
-        ['%s', '%s', '%s', '%s', '%f', '%d', '%d', '%s', '%s', '%d'],
+        ['%s', '%s', '%s', '%s', '%f', '%d', '%d', '%s', '%s', '%d', '%s', '%s', '%s'],
         ['%d']
     );
     
