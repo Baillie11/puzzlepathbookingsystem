@@ -6257,6 +6257,15 @@ function puzzlepath_save_clue_ajax() {
     }
     // Handle answer_options JSON field properly
     if (isset($_POST['answer_options']) && $_POST['answer_options'] !== 'null' && trim($_POST['answer_options']) !== '') {
+        // Validate JSON format
+        $decoded_options = json_decode($_POST['answer_options'], true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            wp_send_json_error('Invalid answer options format: ' . json_last_error_msg());
+        }
+        // Ensure we have at least one valid option
+        if (empty($decoded_options) || !is_array($decoded_options)) {
+            wp_send_json_error('Answer options must contain at least one valid choice');
+        }
         $data['answer_options'] = $_POST['answer_options']; // Already JSON encoded from frontend
     } else {
         // Set to NULL for database when empty to avoid JSON validation errors
@@ -6432,6 +6441,15 @@ function puzzlepath_create_clue_ajax() {
     }
     // Handle answer_options JSON field properly
     if (isset($_POST['answer_options']) && $_POST['answer_options'] !== 'null' && trim($_POST['answer_options']) !== '') {
+        // Validate JSON format
+        $decoded_options = json_decode($_POST['answer_options'], true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            wp_send_json_error('Invalid answer options format: ' . json_last_error_msg());
+        }
+        // Ensure we have at least one valid option
+        if (empty($decoded_options) || !is_array($decoded_options)) {
+            wp_send_json_error('Answer options must contain at least one valid choice');
+        }
         $data['answer_options'] = $_POST['answer_options']; // Already JSON encoded from frontend
     } else {
         // Set to NULL for database when empty to avoid JSON validation errors
@@ -6994,8 +7012,17 @@ function puzzlepath_quests_page() {
                 </div>
                 
                 <div id="edit-multiple-choice-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
-                    <label><strong>Answer Options:</strong> <small>(format: A: First option\nB: Second option)</small></label>
-                    <textarea id="edit-answer-options" style="width: 100%; height: 80px; padding: 5px; margin-top: 5px; resize: vertical;" placeholder="A: First option\nB: Second option\nC: Third option">${clue.answer_options ? Object.entries(JSON.parse(clue.answer_options) || {}).map(([k,v]) => k + ': ' + v).join('\n') : ''}</textarea>
+                    <label><strong>Answer Options:</strong></label>
+                    <div style="margin: 5px 0; padding: 8px; background: #e7f3ff; border-left: 4px solid #2271b1; font-size: 12px;">
+                        <strong>📝 Instructions:</strong><br>
+                        • Each line should be: <code>LETTER: Answer text</code><br>
+                        • Use letters A, B, C, D, etc. as option keys<br>
+                        • Put the correct letter in "Required Answer" field below<br>
+                        <strong>Example:</strong><br>
+                        <code>A: Queensland and New South Wales</code><br>
+                        <code>B: Victoria and Tasmania</code>
+                    </div>
+                    <textarea id="edit-answer-options" style="width: 100%; height: 100px; padding: 8px; margin-top: 5px; resize: vertical; font-family: monospace;" placeholder="A: First option\nB: Second option\nC: Third option\nD: Fourth option">${clue.answer_options ? Object.entries(JSON.parse(clue.answer_options) || {}).map(([k,v]) => k + ': ' + v).join('\n') : ''}</textarea>
                 </div>
                 
                 <div id="edit-photo-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
@@ -7103,13 +7130,29 @@ function puzzlepath_quests_page() {
             var optionsText = document.getElementById('edit-answer-options').value.trim();
             if (optionsText) {
                 var options = {};
+                var hasValidOptions = false;
+                
                 optionsText.split('\n').forEach(function(line) {
                     line = line.trim();
                     if (line && line.includes(':')) {
                         var parts = line.split(':', 2);
-                        options[parts[0].trim()] = parts[1].trim();
+                        var key = parts[0].trim();
+                        var value = parts[1].trim();
+                        
+                        if (key && value) {
+                            options[key] = value;
+                            hasValidOptions = true;
+                        }
                     }
                 });
+                
+                if (!hasValidOptions) {
+                    alert('Please enter at least one valid multiple choice option in the format:\nA: First option\nB: Second option');
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Changes';
+                    return;
+                }
+                
                 answerOptions = JSON.stringify(options);
             }
         }
@@ -7316,8 +7359,17 @@ function puzzlepath_quests_page() {
                 </div>
                 
                 <div id="add-multiple-choice-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
-                    <label><strong>Answer Options:</strong> <small>(format: A: First option\nB: Second option)</small></label>
-                    <textarea id="add-answer-options" style="width: 100%; height: 80px; padding: 5px; margin-top: 5px; resize: vertical;" placeholder="A: First option\nB: Second option\nC: Third option"></textarea>
+                    <label><strong>Answer Options:</strong></label>
+                    <div style="margin: 5px 0; padding: 8px; background: #e7f3ff; border-left: 4px solid #2271b1; font-size: 12px;">
+                        <strong>📝 Instructions:</strong><br>
+                        • Each line should be: <code>LETTER: Answer text</code><br>
+                        • Use letters A, B, C, D, etc. as option keys<br>
+                        • Put the correct letter in "Required Answer" field below<br>
+                        <strong>Example:</strong><br>
+                        <code>A: Queensland and New South Wales</code><br>
+                        <code>B: Victoria and Tasmania</code>
+                    </div>
+                    <textarea id="add-answer-options" style="width: 100%; height: 100px; padding: 8px; margin-top: 5px; resize: vertical; font-family: monospace;" placeholder="A: First option\nB: Second option\nC: Third option\nD: Fourth option"></textarea>
                 </div>
                 
                 <div id="add-photo-options" class="input-type-options" style="display: none; margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 5px;">
@@ -7501,13 +7553,29 @@ function puzzlepath_quests_page() {
             var optionsText = document.getElementById('add-answer-options').value.trim();
             if (optionsText) {
                 var options = {};
+                var hasValidOptions = false;
+                
                 optionsText.split('\n').forEach(function(line) {
                     line = line.trim();
                     if (line && line.includes(':')) {
                         var parts = line.split(':', 2);
-                        options[parts[0].trim()] = parts[1].trim();
+                        var key = parts[0].trim();
+                        var value = parts[1].trim();
+                        
+                        if (key && value) {
+                            options[key] = value;
+                            hasValidOptions = true;
+                        }
                     }
                 });
+                
+                if (!hasValidOptions) {
+                    alert('Please enter at least one valid multiple choice option in the format:\nA: First option\nB: Second option');
+                    createBtn.disabled = false;
+                    createBtn.textContent = 'Create Clue';
+                    return;
+                }
+                
                 answerOptions = JSON.stringify(options);
             }
         }
