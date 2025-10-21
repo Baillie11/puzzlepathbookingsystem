@@ -7388,7 +7388,9 @@ function puzzlepath_quests_page() {
         
         // Show the relevant options
         var inputType = document.getElementById('edit-input-type').value;
-        var optionsDiv = document.getElementById('edit-' + inputType + '-options');
+        // Convert underscore to hyphen for ID matching
+        var divId = 'edit-' + inputType.replace('_', '-') + '-options';
+        var optionsDiv = document.getElementById(divId);
         if (optionsDiv) {
             optionsDiv.style.display = 'block';
         }
@@ -7403,7 +7405,9 @@ function puzzlepath_quests_page() {
         
         // Show the relevant options
         var inputType = document.getElementById('add-input-type').value;
-        var optionsDiv = document.getElementById('add-' + inputType + '-options');
+        // Convert underscore to hyphen for ID matching
+        var divId = 'add-' + inputType.replace('_', '-') + '-options';
+        var optionsDiv = document.getElementById(divId);
         if (optionsDiv) {
             optionsDiv.style.display = 'block';
         }
