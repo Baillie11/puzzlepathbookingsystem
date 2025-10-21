@@ -7368,6 +7368,11 @@ function puzzlepath_quests_page() {
         `;
         
         document.getElementById('add-clue-content').innerHTML = formHtml;
+        
+        // Initialize the input type options display
+        setTimeout(function() {
+            toggleAddInputOptions();
+        }, 100);
     }
     
     function closeAddClue() {
