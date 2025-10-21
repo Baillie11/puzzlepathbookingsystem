@@ -6538,7 +6538,7 @@ function puzzlepath_quests_page() {
             GROUP BY event_id
         ) booking_stats ON e.id = booking_stats.event_id
         WHERE e.hunt_code IS NOT NULL AND e.hunt_code != ''
-        ORDER BY e.created_at DESC
+        ORDER BY e.title ASC
     ");
     
     ?>
