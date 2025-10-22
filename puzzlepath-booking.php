@@ -6257,14 +6257,19 @@ function puzzlepath_save_clue_ajax() {
     }
     // Handle answer_options JSON field properly
     if (isset($_POST['answer_options']) && $_POST['answer_options'] !== 'null' && trim($_POST['answer_options']) !== '') {
+        // Log the received answer options for debugging
+        error_log('Answer options received: ' . $_POST['answer_options']);
+        
         // Validate JSON format
         $decoded_options = json_decode($_POST['answer_options'], true);
         if (json_last_error() !== JSON_ERROR_NONE) {
-            wp_send_json_error('Invalid answer options format: ' . json_last_error_msg());
+            $error_msg = 'Invalid answer options format: ' . json_last_error_msg();
+            error_log('JSON decode error: ' . $error_msg . ' | Data: ' . $_POST['answer_options']);
+            wp_send_json_error($error_msg . '. Please check your multiple choice format.');
         }
         // Ensure we have at least one valid option
         if (empty($decoded_options) || !is_array($decoded_options)) {
-            wp_send_json_error('Answer options must contain at least one valid choice');
+            wp_send_json_error('Answer options must contain at least one valid choice in format: A: Option text');
         }
         $data['answer_options'] = $_POST['answer_options']; // Already JSON encoded from frontend
     } else {
@@ -7135,11 +7140,12 @@ function puzzlepath_quests_page() {
                 optionsText.split('\n').forEach(function(line) {
                     line = line.trim();
                     if (line && line.includes(':')) {
-                        var parts = line.split(':', 2);
-                        var key = parts[0].trim();
-                        var value = parts[1].trim();
+                        var colonIndex = line.indexOf(':');
+                        var key = line.substring(0, colonIndex).trim();
+                        var value = line.substring(colonIndex + 1).trim();
                         
                         if (key && value) {
+                            // Escape special characters in value
                             options[key] = value;
                             hasValidOptions = true;
                         }
@@ -7154,6 +7160,7 @@ function puzzlepath_quests_page() {
                 }
                 
                 answerOptions = JSON.stringify(options);
+                console.log('Generated JSON for answer options (edit):', answerOptions);
             }
         }
         
@@ -7558,11 +7565,12 @@ function puzzlepath_quests_page() {
                 optionsText.split('\n').forEach(function(line) {
                     line = line.trim();
                     if (line && line.includes(':')) {
-                        var parts = line.split(':', 2);
-                        var key = parts[0].trim();
-                        var value = parts[1].trim();
+                        var colonIndex = line.indexOf(':');
+                        var key = line.substring(0, colonIndex).trim();
+                        var value = line.substring(colonIndex + 1).trim();
                         
                         if (key && value) {
+                            // Escape special characters in value
                             options[key] = value;
                             hasValidOptions = true;
                         }
@@ -7577,6 +7585,7 @@ function puzzlepath_quests_page() {
                 }
                 
                 answerOptions = JSON.stringify(options);
+                console.log('Generated JSON for answer options:', answerOptions);
             }
         }
         
