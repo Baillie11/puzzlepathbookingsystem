@@ -1351,6 +1351,30 @@ function puzzlepath_apply_coupon_callback() {
         return;
     }
     
+    // Check per-customer usage limit if set
+    if (isset($coupon->max_uses_per_customer) && $coupon->max_uses_per_customer > 0) {
+        $customer_email = sanitize_email($_POST['customer_email'] ?? '');
+        
+        if (!empty($customer_email)) {
+            $bookings_table = 'wp2s_pp_bookings';
+            
+            // Count how many times this customer has used this coupon
+            $customer_usage = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM $bookings_table 
+                WHERE customer_email = %s AND coupon_code = %s",
+                $customer_email, $code
+            ));
+            
+            error_log('PuzzlePath Coupon: Customer ' . $customer_email . ' has used coupon ' . $code . ' ' . $customer_usage . ' times');
+            
+            if ($customer_usage >= $coupon->max_uses_per_customer) {
+                error_log('PuzzlePath Coupon: Customer usage limit reached');
+                wp_send_json_error(['message' => 'You have already used this coupon the maximum number of times (' . $coupon->max_uses_per_customer . ' uses).']);
+                return;
+            }
+        }
+    }
+    
     $response = [
         'discount_percent' => $coupon->discount_percent,
         'code' => $coupon->code
