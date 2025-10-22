@@ -2918,12 +2918,14 @@ function puzzlepath_coupons_page() {
         $code = sanitize_text_field($_POST['code']);
         $discount_percent = intval($_POST['discount_percent']);
         $max_uses = intval($_POST['max_uses']);
+        $max_uses_per_customer = intval($_POST['max_uses_per_customer']);
         $expires_at = !empty($_POST['expires_at']) ? sanitize_text_field($_POST['expires_at']) : null;
 
         $data = [
             'code' => $code,
             'discount_percent' => $discount_percent,
             'max_uses' => $max_uses,
+            'max_uses_per_customer' => $max_uses_per_customer,
             'expires_at' => $expires_at,
         ];
 
@@ -2976,9 +2978,14 @@ function puzzlepath_coupons_page() {
                     <td><input type="number" name="discount_percent" id="discount_percent" value="<?php echo $edit_coupon ? esc_attr($edit_coupon->discount_percent) : ''; ?>" class="small-text" required></td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="max_uses">Max Uses</label></th>
+                    <th scope="row"><label for="max_uses">Max Uses (Total)</label></th>
                     <td><input type="number" name="max_uses" id="max_uses" value="<?php echo $edit_coupon ? esc_attr($edit_coupon->max_uses) : '0'; ?>" class="small-text">
-                    <p class="description">Set to 0 for unlimited uses.</p></td>
+                    <p class="description">Total times this coupon can be used across all customers. Set to 0 for unlimited.</p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="max_uses_per_customer">Max Uses Per Customer</label></th>
+                    <td><input type="number" name="max_uses_per_customer" id="max_uses_per_customer" value="<?php echo $edit_coupon && isset($edit_coupon->max_uses_per_customer) ? esc_attr($edit_coupon->max_uses_per_customer) : '0'; ?>" class="small-text">
+                    <p class="description">Times each individual customer can use this coupon. Set to 0 for unlimited per customer.</p></td>
                 </tr>
                 <tr>
                     <th scope="row"><label for="expires_at">Expires At</label></th>
@@ -3008,7 +3015,9 @@ function puzzlepath_coupons_page() {
                     echo '<tr>';
                     echo '<td>' . esc_html($coupon->code) . '</td>';
                     echo '<td>' . esc_html($coupon->discount_percent) . '%</td>';
-                    echo '<td>' . esc_html($coupon->times_used) . ' / ' . ($coupon->max_uses > 0 ? esc_html($coupon->max_uses) : '∞') . '</td>';
+                    $max_display = $coupon->max_uses > 0 ? esc_html($coupon->max_uses) : '∞';
+                    $per_customer_display = isset($coupon->max_uses_per_customer) && $coupon->max_uses_per_customer > 0 ? ' (' . esc_html($coupon->max_uses_per_customer) . ' per customer)' : '';
+                    echo '<td>' . esc_html($coupon->times_used) . ' / ' . $max_display . $per_customer_display . '</td>';
                     echo '<td>' . ($coupon->expires_at ? date('F j, Y, g:i a', strtotime($coupon->expires_at)) : 'Never') . '</td>';
                     echo '<td>';
                     echo '<a href="' . admin_url('admin.php?page=puzzlepath-coupons&action=edit&coupon_id=' . $coupon->id) . '">Edit</a> | ';
