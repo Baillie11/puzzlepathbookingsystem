@@ -6260,8 +6260,12 @@ function puzzlepath_save_clue_ajax() {
         // Log the received answer options for debugging
         error_log('Answer options received: ' . $_POST['answer_options']);
         
+        // WordPress may add slashes, so strip them before decoding
+        $clean_json = stripslashes($_POST['answer_options']);
+        error_log('Answer options after stripslashes: ' . $clean_json);
+        
         // Validate JSON format
-        $decoded_options = json_decode($_POST['answer_options'], true);
+        $decoded_options = json_decode($clean_json, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
             $error_msg = 'Invalid answer options format: ' . json_last_error_msg();
             error_log('JSON decode error: ' . $error_msg . ' | Data: ' . $_POST['answer_options']);
@@ -6271,7 +6275,7 @@ function puzzlepath_save_clue_ajax() {
         if (empty($decoded_options) || !is_array($decoded_options)) {
             wp_send_json_error('Answer options must contain at least one valid choice in format: A: Option text');
         }
-        $data['answer_options'] = $_POST['answer_options']; // Already JSON encoded from frontend
+        $data['answer_options'] = $clean_json; // Use the cleaned JSON
     } else {
         // Set to NULL for database when empty to avoid JSON validation errors
         $data['answer_options'] = null;
@@ -6446,16 +6450,22 @@ function puzzlepath_create_clue_ajax() {
     }
     // Handle answer_options JSON field properly
     if (isset($_POST['answer_options']) && $_POST['answer_options'] !== 'null' && trim($_POST['answer_options']) !== '') {
+        // WordPress may add slashes, so strip them before decoding
+        $clean_json = stripslashes($_POST['answer_options']);
+        error_log('Create clue - answer options after stripslashes: ' . $clean_json);
+        
         // Validate JSON format
-        $decoded_options = json_decode($_POST['answer_options'], true);
+        $decoded_options = json_decode($clean_json, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
-            wp_send_json_error('Invalid answer options format: ' . json_last_error_msg());
+            $error_msg = 'Invalid answer options format: ' . json_last_error_msg();
+            error_log('Create clue - JSON decode error: ' . $error_msg . ' | Data: ' . $clean_json);
+            wp_send_json_error($error_msg . '. Please check your multiple choice format.');
         }
         // Ensure we have at least one valid option
         if (empty($decoded_options) || !is_array($decoded_options)) {
-            wp_send_json_error('Answer options must contain at least one valid choice');
+            wp_send_json_error('Answer options must contain at least one valid choice in format: A: Option text');
         }
-        $data['answer_options'] = $_POST['answer_options']; // Already JSON encoded from frontend
+        $data['answer_options'] = $clean_json; // Use the cleaned JSON
     } else {
         // Set to NULL for database when empty to avoid JSON validation errors
         $data['answer_options'] = null;
