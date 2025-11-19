@@ -2267,7 +2267,6 @@ function puzzlepath_upcoming_adventures_shortcode($atts) {
     <?php
     return ob_get_clean();
 }
-}
 add_shortcode('puzzlepath_upcoming_adventures', 'puzzlepath_upcoming_adventures_shortcode');
 
 // ========================= TESTER REGISTRATION SYSTEM =========================
