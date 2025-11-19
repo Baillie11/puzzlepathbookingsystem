@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PuzzlePath Booking
  * Description: A custom booking plugin for PuzzlePath with unified app integration.
- * Version: 2.8.4
+ * Version: 2.9.0
  * Author: Andrew Baillie
  */
 
@@ -232,10 +232,37 @@ function puzzlepath_activate() {
         $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_events ADD COLUMN start_location_instructions text DEFAULT NULL AFTER start_location_address");
     }
     
+    // Add is_tester column to bookings table for tester identification
+    $is_tester_exists = $wpdb->get_results("SHOW COLUMNS FROM {$wpdb->prefix}pp_bookings LIKE 'is_tester'");
+    if (empty($is_tester_exists)) {
+        $wpdb->query("ALTER TABLE {$wpdb->prefix}pp_bookings ADD COLUMN is_tester TINYINT(1) NOT NULL DEFAULT 0 AFTER booking_date");
+    }
+    
+    // Generate tester access key if it doesn't exist
+    if (!get_option('puzzlepath_tester_access_key')) {
+        $access_key = wp_generate_password(32, false);
+        update_option('puzzlepath_tester_access_key', $access_key);
+    }
+    
+    // Auto-create tester registration page if it doesn't exist
+    $tester_page = get_page_by_path('tester-registration');
+    if (!$tester_page) {
+        $page_data = array(
+            'post_title'    => 'PuzzlePath Tester Registration',
+            'post_content'  => '[puzzlepath_tester_registration]',
+            'post_status'   => 'publish',
+            'post_type'     => 'page',
+            'post_name'     => 'tester-registration',
+            'comment_status' => 'closed',
+            'ping_status'   => 'closed'
+        );
+        wp_insert_post($page_data);
+    }
+    
     // Ensure unified app compatibility by updating existing bookings
     puzzlepath_fix_unified_app_compatibility();
     
-    update_option('puzzlepath_booking_version', '2.8.6');
+    update_option('puzzlepath_booking_version', '2.9.0');
 }
 
 register_activation_hook(__FILE__, 'puzzlepath_activate');
@@ -2240,7 +2267,491 @@ function puzzlepath_upcoming_adventures_shortcode($atts) {
     <?php
     return ob_get_clean();
 }
+}
 add_shortcode('puzzlepath_upcoming_adventures', 'puzzlepath_upcoming_adventures_shortcode');
+
+// ========================= TESTER REGISTRATION SYSTEM =========================
+
+/**
+ * Tester Registration Shortcode
+ * Provides a secure form for testers to register and receive double pass to all open hunts
+ */
+function puzzlepath_tester_registration_shortcode($atts) {
+    // Check for access key
+    $access_key = get_option('puzzlepath_tester_access_key');
+    $provided_key = isset($_GET['key']) ? sanitize_text_field($_GET['key']) : '';
+    
+    if ($provided_key !== $access_key) {
+        return '<div class="puzzlepath-tester-error" style="max-width: 600px; margin: 40px auto; padding: 30px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; text-align: center;">
+            <h2 style="color: #721c24; margin-bottom: 15px;">🔒 Access Denied</h2>
+            <p style="color: #666; margin-bottom: 0;">This page requires a valid access key. Please contact the administrator if you need access.</p>
+        </div>';
+    }
+    
+    // Handle form submission
+    $message = '';
+    $message_type = '';
+    
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['puzzlepath_tester_nonce'])) {
+        $result = puzzlepath_process_tester_registration();
+        $message = $result['message'];
+        $message_type = $result['type'];
+    }
+    
+    ob_start();
+    ?>
+    <div id="puzzlepath-tester-registration" style="max-width: 600px; margin: 40px auto; padding: 30px; background: #ffffff; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <h2 style="text-align: center; color: #2c3e50; margin-bottom: 10px;">🧪 PuzzlePath Tester Registration</h2>
+        <p style="text-align: center; color: #666; margin-bottom: 30px;">Register to receive free double passes to all currently available scavenger hunts</p>
+        
+        <?php if ($message): ?>
+            <div class="tester-message tester-<?php echo esc_attr($message_type); ?>" style="padding: 15px; margin-bottom: 20px; border-radius: 5px; <?php echo $message_type === 'success' ? 'background: #d4edda; border: 1px solid #c3e6cb; color: #155724;' : 'background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;'; ?>">
+                <?php echo wp_kses_post($message); ?>
+            </div>
+        <?php endif; ?>
+        
+        <?php if ($message_type !== 'success'): ?>
+        <form method="post" action="<?php echo esc_url(add_query_arg('key', $provided_key, get_permalink())); ?>" style="margin-top: 20px;">
+            <?php wp_nonce_field('puzzlepath_tester_registration', 'puzzlepath_tester_nonce'); ?>
+            
+            <!-- Honeypot field for bot prevention -->
+            <input type="text" name="website_url" value="" style="display: none;" tabindex="-1" autocomplete="off">
+            
+            <div style="margin-bottom: 20px;">
+                <label for="tester_name" style="display: block; margin-bottom: 8px; font-weight: bold; color: #2c3e50;">Full Name <span style="color: #e74c3c;">*</span></label>
+                <input type="text" id="tester_name" name="tester_name" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;" placeholder="Enter your full name">
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <label for="tester_email" style="display: block; margin-bottom: 8px; font-weight: bold; color: #2c3e50;">Email Address <span style="color: #e74c3c;">*</span></label>
+                <input type="email" id="tester_email" name="tester_email" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;" placeholder="your.email@example.com">
+                <small style="color: #666; display: block; margin-top: 5px;">We'll send all booking details to this email</small>
+            </div>
+            
+            <button type="submit" style="width: 100%; padding: 12px; background: linear-gradient(45deg, #3498db, #2980b9); color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.3s ease;" onmouseover="this.style.background='linear-gradient(45deg, #2980b9, #3498db)'" onmouseout="this.style.background='linear-gradient(45deg, #3498db, #2980b9)'">
+                🎯 Register as Tester
+            </button>
+        </form>
+        <?php endif; ?>
+        
+        <div style="margin-top: 30px; padding: 15px; background: #f8f9fa; border-radius: 5px; font-size: 14px; color: #666;">
+            <strong style="color: #2c3e50;">What you'll receive:</strong>
+            <ul style="margin: 10px 0 0 20px; padding: 0;">
+                <li>Free double pass (2 tickets) to each open scavenger hunt</li>
+                <li>Unique booking codes for every hunt</li>
+                <li>Direct links to start each quest in the app</li>
+                <li>Testing guidelines and support contact</li>
+            </ul>
+        </div>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+add_shortcode('puzzlepath_tester_registration', 'puzzlepath_tester_registration_shortcode');
+
+/**
+ * Process tester registration form submission
+ */
+function puzzlepath_process_tester_registration() {
+    global $wpdb;
+    
+    // Verify nonce
+    if (!isset($_POST['puzzlepath_tester_nonce']) || !wp_verify_nonce($_POST['puzzlepath_tester_nonce'], 'puzzlepath_tester_registration')) {
+        return [
+            'type' => 'error',
+            'message' => '<strong>Error:</strong> Security verification failed. Please try again.'
+        ];
+    }
+    
+    // Check honeypot
+    if (!empty($_POST['website_url'])) {
+        error_log('PuzzlePath Tester: Bot detected (honeypot filled)');
+        return [
+            'type' => 'error',
+            'message' => '<strong>Error:</strong> Invalid submission detected.'
+        ];
+    }
+    
+    // Rate limiting check
+    $ip_address = puzzlepath_get_client_ip();
+    $throttle_key = 'puzzlepath_tester_throttle_' . md5($ip_address);
+    $attempts = get_transient($throttle_key);
+    
+    if ($attempts && $attempts >= 3) {
+        return [
+            'type' => 'error',
+            'message' => '<strong>Error:</strong> Too many attempts. Please try again in 15 minutes.'
+        ];
+    }
+    
+    // Sanitize and validate inputs
+    $tester_name = sanitize_text_field($_POST['tester_name'] ?? '');
+    $tester_email = sanitize_email($_POST['tester_email'] ?? '');
+    
+    if (empty($tester_name) || empty($tester_email)) {
+        set_transient($throttle_key, ($attempts ?? 0) + 1, 900); // 15 minutes
+        return [
+            'type' => 'error',
+            'message' => '<strong>Error:</strong> Please provide both name and email address.'
+        ];
+    }
+    
+    if (!is_email($tester_email)) {
+        set_transient($throttle_key, ($attempts ?? 0) + 1, 900);
+        return [
+            'type' => 'error',
+            'message' => '<strong>Error:</strong> Please provide a valid email address.'
+        ];
+    }
+    
+    // Check for duplicate tester registration
+    $existing_tester = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->prefix}pp_bookings WHERE customer_email = %s AND is_tester = 1",
+        $tester_email
+    ));
+    
+    if ($existing_tester > 0) {
+        return [
+            'type' => 'error',
+            'message' => '<strong>Already Registered:</strong> You have already registered as a tester with this email address.'
+        ];
+    }
+    
+    // Get all open hunts (display_on_site = 1 AND seats >= 2)
+    $open_hunts = $wpdb->get_results(
+        "SELECT * FROM {$wpdb->prefix}pp_events WHERE display_on_site = 1 AND seats >= 2 ORDER BY title ASC"
+    );
+    
+    if (empty($open_hunts)) {
+        error_log('PuzzlePath Tester: No open hunts available for registration');
+        return [
+            'type' => 'error',
+            'message' => '<strong>No Available Hunts:</strong> There are currently no open scavenger hunts available for tester registration. Please check back later.'
+        ];
+    }
+    
+    // Create bookings for all open hunts
+    $result = puzzlepath_create_tester_bookings($tester_name, $tester_email, $open_hunts);
+    
+    if ($result['success']) {
+        // Send aggregated email with all booking details
+        $email_sent = puzzlepath_send_tester_email($tester_name, $tester_email, $result['bookings'], $result['skipped']);
+        
+        // Build success message
+        $message = '<h3 style="margin-top: 0;">✅ Registration Successful!</h3>';
+        $message .= '<p><strong>Welcome, ' . esc_html($tester_name) . '!</strong></p>';
+        $message .= '<p>You have been registered for <strong>' . count($result['bookings']) . ' scavenger hunt(s)</strong> with double pass (2 tickets each).</p>';
+        
+        if (!empty($result['bookings'])) {
+            $message .= '<div style="margin-top: 15px;"><strong>Your Hunts:</strong><ul style="margin: 10px 0; padding-left: 20px;">';
+            foreach ($result['bookings'] as $booking) {
+                $message .= '<li>' . esc_html($booking['title']) . ' - <strong>' . esc_html($booking['booking_code']) . '</strong></li>';
+            }
+            $message .= '</ul></div>';
+        }
+        
+        if (!empty($result['skipped'])) {
+            $message .= '<p style="color: #856404; background: #fff3cd; padding: 10px; border-radius: 4px; margin-top: 15px;"><strong>Note:</strong> ' . count($result['skipped']) . ' hunt(s) were skipped due to insufficient available seats.</p>';
+        }
+        
+        if ($email_sent) {
+            $message .= '<p style="margin-top: 15px;">📧 A detailed email with all booking codes and quest links has been sent to <strong>' . esc_html($tester_email) . '</strong></p>';
+        } else {
+            $message .= '<p style="color: #856404; background: #fff3cd; padding: 10px; border-radius: 4px; margin-top: 15px;">⚠️ <strong>Note:</strong> Email delivery encountered an issue. Please contact support if you don\'t receive your booking details within a few minutes.</p>';
+        }
+        
+        return [
+            'type' => 'success',
+            'message' => $message
+        ];
+    } else {
+        error_log('PuzzlePath Tester: Failed to create bookings - ' . $result['error']);
+        return [
+            'type' => 'error',
+            'message' => '<strong>Error:</strong> ' . esc_html($result['error'])
+        ];
+    }
+}
+
+/**
+ * Create tester bookings for all open hunts
+ */
+function puzzlepath_create_tester_bookings($tester_name, $tester_email, $open_hunts) {
+    global $wpdb;
+    
+    $successful_bookings = [];
+    $skipped_hunts = [];
+    
+    // Start transaction
+    $wpdb->query('START TRANSACTION');
+    
+    try {
+        foreach ($open_hunts as $event) {
+            // Generate unique booking code
+            $booking_code = puzzlepath_generate_tester_booking_code($event);
+            
+            // Prepare booking data
+            $booking_data = [
+                'event_id' => $event->id,
+                'hunt_id' => $event->hunt_code,
+                'customer_name' => $tester_name,
+                'customer_email' => $tester_email,
+                'tickets' => 2,
+                'total_price' => 0.00,
+                'payment_status' => 'paid',
+                'booking_code' => $booking_code,
+                'booking_date' => current_time('mysql'),
+                'is_tester' => 1,
+                'created_at' => current_time('mysql')
+            ];
+            
+            // Attempt to decrement seats (conditional update to prevent overselling)
+            $seats_updated = $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->prefix}pp_events SET seats = seats - 2 WHERE id = %d AND seats >= 2",
+                $event->id
+            ));
+            
+            if ($seats_updated === false || $seats_updated === 0) {
+                // Failed to decrement seats (probably insufficient seats)
+                $skipped_hunts[] = [
+                    'title' => $event->title,
+                    'reason' => 'Insufficient seats'
+                ];
+                error_log('PuzzlePath Tester: Skipping event ID ' . $event->id . ' - insufficient seats');
+                continue;
+            }
+            
+            // Insert booking
+            $insert_result = $wpdb->insert(
+                $wpdb->prefix . 'pp_bookings',
+                $booking_data
+            );
+            
+            if ($insert_result === false) {
+                // Rollback seat decrement if insert failed
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE {$wpdb->prefix}pp_events SET seats = seats + 2 WHERE id = %d",
+                    $event->id
+                ));
+                $skipped_hunts[] = [
+                    'title' => $event->title,
+                    'reason' => 'Database error'
+                ];
+                error_log('PuzzlePath Tester: Failed to insert booking for event ID ' . $event->id . ' - ' . $wpdb->last_error);
+                continue;
+            }
+            
+            $booking_id = $wpdb->insert_id;
+            
+            // Log audit trail
+            PuzzlePath_Audit_Logger::log_booking_created(
+                $booking_id,
+                $booking_data,
+                'Tester booking created - Double pass granted'
+            );
+            
+            // Add to successful bookings
+            $successful_bookings[] = [
+                'booking_id' => $booking_id,
+                'booking_code' => $booking_code,
+                'title' => $event->title,
+                'hunt_code' => $event->hunt_code,
+                'hunt_name' => $event->hunt_name,
+                'location' => $event->location,
+                'event_date' => $event->event_date,
+                'price' => $event->price
+            ];
+            
+            error_log('PuzzlePath Tester: Successfully created booking ID ' . $booking_id . ' for event: ' . $event->title);
+        }
+        
+        if (empty($successful_bookings)) {
+            $wpdb->query('ROLLBACK');
+            return [
+                'success' => false,
+                'error' => 'No bookings could be created. All hunts were skipped due to insufficient seats or errors.'
+            ];
+        }
+        
+        // Commit transaction
+        $wpdb->query('COMMIT');
+        
+        return [
+            'success' => true,
+            'bookings' => $successful_bookings,
+            'skipped' => $skipped_hunts
+        ];
+        
+    } catch (Exception $e) {
+        $wpdb->query('ROLLBACK');
+        error_log('PuzzlePath Tester: Exception during booking creation - ' . $e->getMessage());
+        return [
+            'success' => false,
+            'error' => 'An unexpected error occurred. Please try again or contact support.'
+        ];
+    }
+}
+
+/**
+ * Generate unique booking code for tester bookings
+ */
+function puzzlepath_generate_tester_booking_code($event = null) {
+    global $wpdb;
+    
+    do {
+        if ($event && !empty($event->hunt_code)) {
+            // Hunt-specific format: HuntCode-YYYYMMDD-XXXX
+            $date_part = date('Ymd');
+            $random_part = str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
+            $code = strtoupper($event->hunt_code) . '-' . $date_part . '-' . $random_part;
+        } else {
+            // Default PP format with TESTER prefix
+            $code = 'TESTER-' . substr(str_shuffle('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 6);
+        }
+        $exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}pp_bookings WHERE booking_code = %s",
+            $code
+        ));
+    } while ($exists > 0);
+    
+    return $code;
+}
+
+/**
+ * Send aggregated tester email with all booking details
+ */
+function puzzlepath_send_tester_email($tester_name, $tester_email, $bookings, $skipped = []) {
+    $to = $tester_email;
+    $subject = 'Your PuzzlePath Tester Access - All Quest Details';
+    
+    // Get email template (fallback to default if not set)
+    $template = get_option('puzzlepath_email_template', puzzlepath_get_default_html_template());
+    
+    // Get plugin URL for logo
+    $plugin_url = plugin_dir_url(__FILE__);
+    $logo_url = $plugin_url . 'images/puzzlepath-logo.png';
+    
+    // Check if logo exists, use fallback if not
+    $logo_path = plugin_dir_path(__FILE__) . 'images/puzzlepath-logo.png';
+    if (!file_exists($logo_path)) {
+        $logo_url = 'https://via.placeholder.com/150x60/3F51B5/ffffff?text=PuzzlePath';
+    }
+    
+    // Build quest list HTML
+    $quest_list = '<table style="width: 100%; border-collapse: collapse; margin: 20px 0;">';
+    $quest_list .= '<thead><tr style="background: #3498db; color: white;">';
+    $quest_list .= '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Quest</th>';
+    $quest_list .= '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Location</th>';
+    $quest_list .= '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Booking Code</th>';
+    $quest_list .= '<th style="padding: 10px; text-align: center; border: 1px solid #ddd;">Action</th>';
+    $quest_list .= '</tr></thead><tbody>';
+    
+    foreach ($bookings as $booking) {
+        $app_url = 'https://app.puzzlepath.com.au?booking=' . urlencode($booking['booking_code']);
+        $formatted_date = $booking['event_date'] ? date('M j, Y', strtotime($booking['event_date'])) : 'Anytime';
+        
+        $quest_list .= '<tr style="border-bottom: 1px solid #ddd;">';
+        $quest_list .= '<td style="padding: 10px; border: 1px solid #ddd;"><strong>' . esc_html($booking['title']) . '</strong><br><small style="color: #666;">' . $formatted_date . '</small></td>';
+        $quest_list .= '<td style="padding: 10px; border: 1px solid #ddd;">' . esc_html($booking['location']) . '</td>';
+        $quest_list .= '<td style="padding: 10px; border: 1px solid #ddd; font-family: monospace; font-weight: bold;">' . esc_html($booking['booking_code']) . '</td>';
+        $quest_list .= '<td style="padding: 10px; text-align: center; border: 1px solid #ddd;"><a href="' . esc_url($app_url) . '" style="background: #27ae60; color: white; padding: 8px 15px; text-decoration: none; border-radius: 4px; display: inline-block;">Start Quest</a></td>';
+        $quest_list .= '</tr>';
+    }
+    
+    $quest_list .= '</tbody></table>';
+    
+    // Build email body
+    $email_body = '<h2 style="color: #2c3e50; margin-top: 0;">🧪 Welcome to PuzzlePath Testing Team!</h2>';
+    $email_body .= '<p>Hi <strong>' . esc_html($tester_name) . '</strong>,</p>';
+    $email_body .= '<p>Thank you for joining our testing team! You have been granted <strong>free double passes (2 tickets each)</strong> to all currently available scavenger hunts.</p>';
+    $email_body .= '<h3 style="color: #3498db;">Your Quest Bookings (' . count($bookings) . ' Total)</h3>';
+    $email_body .= $quest_list;
+    
+    // Add testing guidelines
+    $email_body .= '<div style="background: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">';
+    $email_body .= '<h3 style="color: #2c3e50; margin-top: 0;">📋 Testing Guidelines</h3>';
+    $email_body .= '<ul style="margin: 10px 0; padding-left: 20px; line-height: 1.6;">';
+    $email_body .= '<li>Test each quest thoroughly and note any issues or bugs</li>';
+    $email_body .= '<li>Check clue clarity, location accuracy, and app functionality</li>';
+    $email_body .= '<li>Take photos of any problems you encounter</li>';
+    $email_body .= '<li>Provide feedback on difficulty level and overall experience</li>';
+    $email_body .= '<li>Report any issues to: <a href="mailto:support@puzzlepath.com.au">support@puzzlepath.com.au</a></li>';
+    $email_body .= '</ul></div>';
+    
+    // Add skipped hunts note if any
+    if (!empty($skipped)) {
+        $email_body .= '<p style="color: #856404; background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;"><strong>Note:</strong> ' . count($skipped) . ' hunt(s) could not be included due to insufficient available seats. These will be added to your account when seats become available.</p>';
+    }
+    
+    $email_body .= '<p style="margin-top: 30px;">If you have any questions or need assistance, please contact us at <a href="mailto:support@puzzlepath.com.au">support@puzzlepath.com.au</a></p>';
+    $email_body .= '<p>Happy Testing!<br><strong>The PuzzlePath Team</strong></p>';
+    
+    // Replace template placeholders
+    $html_message = str_replace(
+        ['{name}', '{event_title}', '{event_date}', '{price}', '{booking_code}', '{logo_url}', '{app_url}'],
+        [
+            $tester_name,
+            'Tester Access - All Quests',
+            current_time('F j, Y'),
+            'FREE (Tester Access)',
+            'Multiple Codes (see below)',
+            $logo_url,
+            'https://app.puzzlepath.com.au'
+        ],
+        $template
+    );
+    
+    // Replace the main content placeholder with our detailed body
+    if (strpos($html_message, '{content}') !== false) {
+        $html_message = str_replace('{content}', $email_body, $html_message);
+    } else {
+        // If no {content} placeholder, try to insert after the logo/header
+        $html_message = $email_body; // Fallback to just the body
+    }
+    
+    // Set up email headers
+    $headers = [];
+    $headers[] = 'From: PuzzlePath <bookings@puzzlepath.com.au>';
+    $headers[] = 'Content-Type: text/html; charset=UTF-8';
+    
+    // Set content type to HTML
+    add_filter('wp_mail_content_type', function() { return 'text/html'; });
+    
+    // Send email
+    $mail_result = wp_mail($to, $subject, $html_message, $headers);
+    
+    // Clean up filter
+    remove_filter('wp_mail_content_type', function() { return 'text/html'; });
+    
+    // Log result
+    if ($mail_result) {
+        error_log('PuzzlePath Tester: Email sent successfully to ' . $tester_email);
+    } else {
+        error_log('PuzzlePath Tester: Failed to send email to ' . $tester_email);
+    }
+    
+    return $mail_result;
+}
+
+/**
+ * Get client IP address for rate limiting
+ */
+function puzzlepath_get_client_ip() {
+    $ip_keys = ['HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED', 'HTTP_FORWARDED_FOR', 'HTTP_FORWARDED', 'REMOTE_ADDR'];
+    
+    foreach ($ip_keys as $key) {
+        if (array_key_exists($key, $_SERVER) === true) {
+            foreach (explode(',', $_SERVER[$key]) as $ip) {
+                $ip = trim($ip);
+                if (filter_var($ip, FILTER_VALIDATE_IP) !== false) {
+                    return $ip;
+                }
+            }
+        }
+    }
+    
+    return isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown';
+}
 
 /**
  * Force shortcode processing in content - ensures shortcodes work even if theme doesn't support them
@@ -4049,6 +4560,7 @@ function puzzlepath_bookings_page() {
     $status_filter = isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '';
     $event_filter = isset($_GET['event_id']) ? intval($_GET['event_id']) : '';
     $hunt_filter = isset($_GET['hunt_code']) ? sanitize_text_field($_GET['hunt_code']) : '';
+    $tester_filter = isset($_GET['is_tester']) ? sanitize_text_field($_GET['is_tester']) : '';
     $date_from = isset($_GET['date_from']) ? sanitize_text_field($_GET['date_from']) : '';
     $date_to = isset($_GET['date_to']) ? sanitize_text_field($_GET['date_to']) : '';
     $search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
@@ -4091,6 +4603,12 @@ function puzzlepath_bookings_page() {
     if ($hunt_filter) {
         $where_clauses[] = 'e.hunt_code = %s';
         $where_values[] = $hunt_filter;
+    }
+    
+    if ($tester_filter === 'testers') {
+        $where_clauses[] = 'COALESCE(b.is_tester, 0) = 1';
+    } elseif ($tester_filter === 'non_testers') {
+        $where_clauses[] = 'COALESCE(b.is_tester, 0) = 0';
     }
     
     if ($date_from) {
@@ -4247,6 +4765,12 @@ function puzzlepath_bookings_page() {
                         ?>
                     </select>
                     
+                    <select name="is_tester">
+                        <option value="">All Bookings</option>
+                        <option value="testers" <?php selected($tester_filter, 'testers'); ?>>🧪 Testers Only</option>
+                        <option value="non_testers" <?php selected($tester_filter, 'non_testers'); ?>>Regular Bookings</option>
+                    </select>
+                    
                     <input type="date" name="date_from" value="<?php echo esc_attr($date_from); ?>" placeholder="From Date">
                     <input type="date" name="date_to" value="<?php echo esc_attr($date_to); ?>" placeholder="To Date">
                     
@@ -4254,7 +4778,7 @@ function puzzlepath_bookings_page() {
                     
                     <input type="submit" class="button" value="Filter">
                     
-                    <?php if ($status_filter || $event_filter || $hunt_filter || $date_from || $date_to || $search): ?>
+                    <?php if ($status_filter || $event_filter || $hunt_filter || $tester_filter || $date_from || $date_to || $search): ?>
                         <a href="<?php echo admin_url('admin.php?page=puzzlepath-bookings'); ?>" class="button">Clear Filters</a>
                     <?php endif; ?>
                 </form>
@@ -4389,6 +4913,9 @@ function puzzlepath_bookings_page() {
                                     <span style="background: <?php echo $status_color; ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
                                         <?php echo esc_html($booking->payment_status); ?>
                                     </span>
+                                    <?php if (isset($booking->is_tester) && $booking->is_tester == 1): ?>
+                                        <br><span style="background: #27ae60; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; text-transform: uppercase; display: inline-block; margin-top: 3px;">🧪 TESTER</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td><?php echo date('M j, Y', strtotime($booking->created_at)); ?></td>
                                 <td>
