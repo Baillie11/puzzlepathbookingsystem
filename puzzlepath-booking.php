@@ -2301,7 +2301,7 @@ function puzzlepath_tester_registration_shortcode($atts) {
     ?>
     <div id="puzzlepath-tester-registration" style="max-width: 600px; margin: 40px auto; padding: 30px; background: #ffffff; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
         <h2 style="text-align: center; color: #2c3e50; margin-bottom: 10px;">🧪 PuzzlePath Tester Registration</h2>
-        <p style="text-align: center; color: #666; margin-bottom: 30px;">Register to receive free double passes to all currently available scavenger hunts</p>
+        <p style="text-align: center; color: #666; margin-bottom: 30px;">Register to receive free double passes to all scavenger hunts for life</p>
         
         <?php if ($message): ?>
             <div class="tester-message tester-<?php echo esc_attr($message_type); ?>" style="padding: 15px; margin-bottom: 20px; border-radius: 5px; <?php echo $message_type === 'success' ? 'background: #d4edda; border: 1px solid #c3e6cb; color: #155724;' : 'background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;'; ?>">
