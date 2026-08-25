@@ -1279,6 +1279,7 @@ function puzzlepath_enqueue_scripts() {
     
     // Condition 2: Current page URL suggests it's a booking related page
     if (strpos($_SERVER['REQUEST_URI'], 'booking') !== false || 
+        strpos($_SERVER['REQUEST_URI'], 'book-today') !== false ||
         strpos($_SERVER['REQUEST_URI'], 'simple-booking-test') !== false ||
         strpos($_SERVER['REQUEST_URI'], 'confirmation') !== false) {
         $should_load_scripts = true;
@@ -1296,7 +1297,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form-style',
             plugin_dir_url(__FILE__) . 'css/booking-form.css',
             array(),
-            '2.7.5'
+            filemtime(plugin_dir_path(__FILE__) . 'css/booking-form.css')
         );
         
         wp_enqueue_script('jquery');

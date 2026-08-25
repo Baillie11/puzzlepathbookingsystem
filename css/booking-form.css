@@ -1,12 +1,21 @@
 /* PuzzlePath Booking Form Styles */
-#puzzlepath-booking-form-container {
+#puzzlepath-booking-form-container,
+#puzzlepath-booking-form {
     max-width: 600px;
     margin: 2em auto;
     padding: 2em;
     background-color: #FFD54F;
     border: 1px solid #ddd;
-    border-radius: 5px;
+    border-radius: 12px;
     font-family: sans-serif;
+    box-sizing: border-box;
+    box-shadow: 0 8px 24px rgba(44, 62, 80, 0.12);
+}
+
+#puzzlepath-booking-form h3 {
+    margin-top: 0;
+    color: #1f2d3d;
+    text-align: center;
 }
 
 #puzzlepath-booking-form label {
@@ -130,4 +139,17 @@
     font-weight: bold;
     margin-top: 1em;
     display: none; /* Hidden by default */
+}
+
+@media (max-width: 640px) {
+    #puzzlepath-booking-form-container,
+    #puzzlepath-booking-form {
+        width: calc(100% - 32px);
+        margin: 1em auto;
+        padding: 1.25em;
+    }
+
+    #puzzlepath-booking-form button {
+        width: 100%;
+    }
 }
