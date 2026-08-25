@@ -142,6 +142,11 @@
 }
 
 @media (max-width: 640px) {
+    .elementor-widget-shortcode:has(#puzzlepath-booking-form) {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
     #puzzlepath-booking-form-container,
     #puzzlepath-booking-form {
         width: calc(100% - 32px);
