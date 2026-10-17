@@ -7,6 +7,13 @@
  */
 
 defined('ABSPATH') or die('No script kiddies please!');
+require_once __DIR__ . '/includes/payment-statuses.php';
+require_once __DIR__ . '/includes/booking-email-actions.php';
+require_once __DIR__ . '/includes/booking-email-popup.php';
+require_once __DIR__ . '/includes/quest-progress.php';
+require_once __DIR__ . '/includes/badge-assets.php';
+require_once __DIR__ . '/includes/completion-email.php';
+require_once __DIR__ . '/includes/repeat-hunter.php';
 
 /**
  * Activation hook to create/update database tables.
@@ -62,7 +69,7 @@ function puzzlepath_activate() {
         tickets int(11) NOT NULL,
         total_price float NOT NULL,
         coupon_id mediumint(9),
-        payment_status varchar(50) DEFAULT 'pending' NOT NULL,
+        payment_status varchar(50) DEFAULT 'unpaid' NOT NULL,
         stripe_payment_intent_id varchar(255),
         booking_code varchar(25),
         booking_date date DEFAULT NULL,
@@ -536,11 +543,12 @@ function puzzlepath_fix_unified_app_compatibility() {
             CASE 
                 WHEN b.payment_status = 'paid' THEN 'confirmed'
                 WHEN b.payment_status = 'pending' THEN 'pending'
+                WHEN b.payment_status = 'unpaid' THEN 'unpaid'
                 ELSE 'cancelled'
             END as status
         FROM $bookings_table b
         LEFT JOIN $events_table e ON b.event_id = e.id
-        WHERE b.payment_status IN ('paid', 'pending')");
+        WHERE b.payment_status IN ('paid', 'pending', 'unpaid')");
 }
 
 /**
@@ -828,6 +836,7 @@ function puzzlepath_audit_log_page() {
         <h1>📋 Booking Audit Log</h1>
         <p>Comprehensive tracking of all booking changes and activities.</p>
         
+        <?php echo puzzlepath_payment_status_guide(); ?>
         <!-- Filters -->
         <div class="audit-filters" style="background: #fff; padding: 15px; margin-bottom: 20px; border: 1px solid #c3c4c7; border-radius: 4px;">
             <form method="get" action="">
@@ -1227,9 +1236,7 @@ function puzzlepath_format_data_table($data) {
         } elseif ($key === 'total_price' && is_numeric($value)) {
             $html .= '<strong>$' . number_format($value, 2) . '</strong>';
         } elseif ($key === 'payment_status') {
-            $status_colors = ['pending' => '#dba617', 'paid' => '#00a32a', 'failed' => '#d63638', 'refunded' => '#8c8f94'];
-            $color = $status_colors[$value] ?? '#666';
-            $html .= '<span style="background: ' . $color . '; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; text-transform: uppercase;">' . esc_html($value) . '</span>';
+            $html .= puzzlepath_payment_status_badge($value);
         } elseif (strlen($value) > 50) {
             // Long text - truncate with expansion option
             $html .= '<div class="long-text">';
@@ -1307,7 +1314,7 @@ function puzzlepath_enqueue_scripts() {
             'puzzlepath-booking-form',
             plugin_dir_url(__FILE__) . 'js/booking-form.js',
             array('jquery'),
-            '3.0.0', // Added confirmation page redirect
+            filemtime(plugin_dir_path(__FILE__) . 'js/booking-form.js'), // Refresh booking script after updates
             true
         );
         
@@ -1448,7 +1455,7 @@ function puzzlepath_booking_form_shortcode($atts) {
                             if ($event->event_date) {
                                 echo ' - ' . date('F j, Y, g:i a', strtotime($event->event_date));
                             }
-                            echo ' - $' . number_format($event->price, 2);
+                            echo ' - $' . number_format($event->price, 2) . ' per quest (up to 5 people)';
                             ?>
                         </option>
                     <?php endforeach; ?>
@@ -1466,8 +1473,9 @@ function puzzlepath_booking_form_shortcode($atts) {
             </div>
             
             <div class="form-group">
-                <label for="tickets">Number of Tickets:</label>
-                <input type="number" name="tickets" id="tickets" min="1" max="10" value="1" required>
+                <label for="tickets">Number of Quests:</label>
+                <input type="number" name="tickets" id="tickets" min="1" max="10" step="1" value="1" aria-describedby="carload-pricing" required>
+                <p id="carload-pricing">$19.95 per quest, for up to 5 people. Select 1 for one group.</p>
             </div>
             
             <div class="form-group">
@@ -1568,7 +1576,7 @@ function puzzlepath_booking_confirmation_shortcode($atts) {
                     <span class="value"><?php echo esc_html($formatted_date); ?></span>
                 </div>
                 <div class="detail-row">
-                    <span class="label">Tickets:</span>
+                    <span class="label"><?php echo get_option('puzzlepath_carload_pricing_20261015') && $booking->created_at >= get_option('puzzlepath_carload_pricing_20261015') ? 'Quests (up to 5 people each):' : 'Tickets:'; ?></span>
                     <span class="value"><?php echo esc_html($booking->tickets); ?></span>
                 </div>
                 <div class="detail-row">
@@ -1982,13 +1990,13 @@ function puzzlepath_upcoming_adventures_shortcode($atts) {
                                 <?php if ($quest->is_featured): ?>
                                     <span class="featured-badge" style="background: #FFD700; color: #000; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; margin-right: 8px;">⭐ FEATURED</span>
                                 <?php endif; ?>
-                                <?php if ($quest->quest_type === 'driving'): ?>
-                                    <span class="info-icon">🚗</span>
-                                    <span>Driving Quest</span>
-                                <?php else: ?>
-                                    <span class="info-icon">🚶‍♂️</span>
-                                    <span>Walking Quest</span>
-                                <?php endif; ?>
+                                <?php
+                                $travel_modes = puzzlepath_travel_modes();
+                                $travel_mode = $quest->quest_type ?? 'walking';
+                                $travel_icons = ['walking' => '🚶‍♂️', 'driving' => '🚗', 'cycling' => '🚲', 'mixed' => '🧭'];
+                                ?>
+                                <span class="info-icon"><?php echo esc_html($travel_icons[$travel_mode] ?? '🧭'); ?></span>
+                                <span><?php echo esc_html(($travel_modes[$travel_mode] ?? 'Mixed') . ' Quest'); ?></span>
                                 <span class="difficulty-separator"> · </span>
                                 <span class="difficulty"><?php echo ucfirst(esc_html($quest->difficulty)); ?></span>
                                 <?php if ($quest->difficulty === 'easy'): ?>
@@ -2009,7 +2017,7 @@ function puzzlepath_upcoming_adventures_shortcode($atts) {
                             <!-- Price -->
                             <div class="info-line price-line">
                                 <span class="info-icon">🎟️</span>
-                                <span><strong>$<?php echo number_format($quest->price, 0); ?> person</strong></span>
+                                <span><strong>$<?php echo number_format($quest->price, 2); ?> per quest</strong><br><small>Up to 5 people per quest</small></span>
                             </div>
                             
                             <!-- Book Now Button -->
@@ -2125,9 +2133,10 @@ function puzzlepath_upcoming_adventures_shortcode($atts) {
     }
     
     .adventure-image img {
+        display: block;
         width: 100%;
         height: 100%;
-        object-fit: cover;
+        object-fit: contain;
         object-position: center;
         border-radius: 10px;
     }
@@ -2923,7 +2932,7 @@ function puzzlepath_handle_event_save() {
     $event_date = ($hosting_type === 'hosted' && !empty($_POST['event_date'])) ? sanitize_text_field($_POST['event_date']) : null;
 
     $display_on_site = isset($_POST['display_on_site']) ? 1 : 0;
-    $quest_type = isset($_POST['quest_type']) && in_array($_POST['quest_type'], ['walking', 'driving']) ? $_POST['quest_type'] : 'walking';
+    $quest_type = isset($_POST['quest_type']) && array_key_exists($_POST['quest_type'], puzzlepath_travel_modes()) ? $_POST['quest_type'] : 'walking';
     $difficulty = isset($_POST['difficulty']) && in_array($_POST['difficulty'], ['easy', 'moderate', 'hard']) ? $_POST['difficulty'] : 'easy';
     $quest_description = !empty($_POST['quest_description']) ? sanitize_textarea_field($_POST['quest_description']) : null;
     $display_on_adventures_page = isset($_POST['display_on_adventures_page']) ? 1 : 0;
@@ -3557,7 +3566,11 @@ function puzzlepath_coupons_page() {
 if (file_exists(__DIR__ . '/vendor/autoload.php')) {
     require_once __DIR__ . '/vendor/autoload.php';
 
+    require_once __DIR__ . '/includes/stripe-reconciliation.php';
+    require_once __DIR__ . '/includes/stripe-reconciliation-admin.php';
+
     class PuzzlePath_Stripe_Integration {
+        use PuzzlePath_Stripe_Reconciliation;
         private static $instance;
 
         public static function get_instance() {
@@ -3664,6 +3677,10 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                 }
             }
 
+            if (function_exists('pp_rh_is_code') && pp_rh_is_code($coupon_code)) {
+                if (!$coupon_id) return new WP_Error('repeat_hunter_coupon', 'Please reopen your badge collection to activate the discount.', ['status'=>400]);
+                $total_price = pp_rh_total($event->price, $tickets);
+            }
             // Handle free bookings (100% discount or $0 total)
             if ($total_price <= 0) {
                 return $this->process_free_booking($event_id, $tickets, $params, $event, $coupon_id);
@@ -3691,7 +3708,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                     'tickets' => $tickets,
                     'total_price' => $total_price,
                     'coupon_id' => $coupon_id,
-                    'payment_status' => 'pending',
+                    'payment_status' => 'unpaid',
                     'booking_code' => $booking_code,
                     'booking_date' => current_time('mysql')
                 ];
@@ -3707,7 +3724,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                 );
 
                 $payment_intent = \Stripe\PaymentIntent::create([
-                    'amount' => $total_price * 100,
+                    'amount' => (int) round($total_price * 100),
                     'currency' => 'aud',
                     'metadata' => [
                         'booking_id' => $booking_id,
@@ -3746,51 +3763,34 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                 return new WP_Error('invalid_signature', 'Invalid signature', array('status' => 400));
             }
 
-            if ($event->type == 'charge.succeeded') {
-                $payment_intent = $event->data->object;
-                $booking_code = $this->fulfill_booking($payment_intent->id);
-                return new WP_REST_Response(array('status' => 'success', 'booking_code' => $booking_code), 200);
-            }
-
-            return new WP_REST_Response(array('status' => 'success'), 200);
-        }
-        
-        private function fulfill_booking($payment_intent_id) {
-            global $wpdb;
-            $bookings_table = 'wp2s_pp_bookings';
-            $events_table = 'wp2s_pp_events';
-            $coupons_table = 'wp2s_pp_coupons';
-
-            $booking = $wpdb->get_row($wpdb->prepare("SELECT * FROM $bookings_table WHERE stripe_payment_intent_id = %s", $payment_intent_id));
-
-            if ($booking && $booking->payment_status === 'pending') {
-                // Log payment status change
-                PuzzlePath_Audit_Logger::log_payment_status_changed(
-                    $booking->id,
-                    'pending',
-                    'paid',
-                    'Payment successful via Stripe webhook'
-                );
-                
-                $wpdb->update($bookings_table, 
-                    ['payment_status' => 'paid'], 
-                    ['id' => $booking->id]
-                );
-
-                $wpdb->query($wpdb->prepare("UPDATE $events_table SET seats = seats - %d WHERE id = %d", $booking->tickets, $booking->event_id));
-
-                if ($booking->coupon_id) {
-                    $wpdb->query($wpdb->prepare("UPDATE $coupons_table SET times_used = times_used + 1 WHERE id = %d", $booking->coupon_id));
+            try {
+                if (in_array($event->type, ['payment_intent.succeeded', 'payment_intent.processing', 'payment_intent.amount_capturable_updated', 'payment_intent.requires_action', 'payment_intent.payment_failed', 'payment_intent.canceled'], true)) {
+                    $intent_id = $event->data->object->id;
+                } elseif ($event->type === 'charge.succeeded') {
+                    // Older endpoints may still deliver Charge events. Resolve their pi_ ID.
+                    $intent_id = $event->data->object->payment_intent;
+                } else {
+                    return new WP_REST_Response(['status' => 'ignored'], 200);
                 }
-
-                $this->send_confirmation_email($booking, $booking->booking_code);
-
-                return $booking->booking_code;
+                if (empty($intent_id)) {
+                    return new WP_REST_Response(['status' => 'ignored'], 200);
+                }
+                $result = $this->reconcile_payment_intent($intent_id, true, true);
+                if ($result['result'] === 'unmatched') {
+                    // A retry can recover a webhook arriving before the intent ID is saved.
+                    return new WP_Error('booking_not_ready', 'Booking not ready for payment update.', ['status' => 503]);
+                }
+                if ($result['result'] === 'review') {
+                    return new WP_Error('payment_review', 'Payment requires booking review.', ['status' => 409]);
+                }
+                return new WP_REST_Response($result, 200);
+            } catch (Exception $e) {
+                error_log('PuzzlePath Stripe reconciliation failed: ' . get_class($e));
+                return new WP_Error('payment_update_failed', 'Payment update failed; retry required.', ['status' => 500]);
             }
-            return null;
         }
 
-        private function send_confirmation_email($booking, $booking_code) {
+        public function send_confirmation_email($booking, $booking_code) {
             $to = $booking->customer_email;
             $subject = 'Your PuzzlePath Booking Confirmation';
             global $wpdb;
@@ -4495,13 +4495,7 @@ function puzzlepath_bookings_page() {
                 }
                 break;
                 
-            case 'resend_email':
-                if (isset($_GET['_wpnonce']) && wp_verify_nonce($_GET['_wpnonce'], 'puzzlepath_resend_' . $booking_id)) {
-                    puzzlepath_resend_confirmation_email($booking_id);
-                    wp_redirect(admin_url('admin.php?page=puzzlepath-bookings&message=email_sent'));
-                    exit;
-                }
-                break;
+
         }
     }
     
@@ -4522,13 +4516,7 @@ function puzzlepath_bookings_page() {
                 exit;
                 break;
                 
-            case 'bulk_email':
-                foreach ($booking_ids as $booking_id) {
-                    puzzlepath_resend_confirmation_email($booking_id);
-                }
-                wp_redirect(admin_url('admin.php?page=puzzlepath-bookings&message=bulk_emails_sent&count=' . count($booking_ids)));
-                exit;
-                break;
+
                 
             case 'bulk_delete':
                 // Comprehensive audit logging before deletion
@@ -4681,7 +4669,7 @@ function puzzlepath_bookings_page() {
                             echo 'Booking refunded successfully.';
                             break;
                         case 'email_sent':
-                            echo 'Confirmation email sent successfully.';
+                            echo 'Confirmation email accepted by the mail system.';
                             break;
                         case 'bulk_refunded':
                             $count = isset($_GET['count']) ? intval($_GET['count']) : 0;
@@ -4720,16 +4708,21 @@ function puzzlepath_bookings_page() {
                 <h3 style="margin: 0; color: #00a32a;">Total Revenue</h3>
                 <p style="font-size: 24px; margin: 5px 0; font-weight: bold;">$<?php echo number_format($stats['total_revenue'], 2); ?></p>
             </div>
+            <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #646970; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h3 style="margin:0;color:#646970">Unpaid Bookings <?php echo puzzlepath_payment_status_badge('unpaid'); ?></h3>
+                <p style="font-size:24px;margin:5px 0;font-weight:bold"><?php echo $stats['unpaid_payments']; ?></p>
+            </div>
             <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #dba617; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
-                <h3 style="margin: 0; color: #dba617;">Pending Payments</h3>
+                <h3 style="margin: 0; color: #dba617;">Pending Payments <?php echo puzzlepath_payment_status_badge('pending'); ?></h3>
                 <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo $stats['pending_payments']; ?></p>
             </div>
             <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #d63638; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
-                <h3 style="margin: 0; color: #d63638;">Total Participants</h3>
+                <h3 style="margin: 0; color: #d63638;">Total Booking Units</h3>
                 <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo $stats['total_participants']; ?></p>
             </div>
         </div>
         
+        <?php echo puzzlepath_payment_status_guide(); ?>
         <!-- Filters -->
         <div class="tablenav top">
             <div class="alignleft actions">
@@ -4738,9 +4731,11 @@ function puzzlepath_bookings_page() {
                     
                     <select name="status">
                         <option value="">All Statuses</option>
+                        <option value="unpaid" <?php selected($status_filter, 'unpaid'); ?>>Unpaid</option>
                         <option value="pending" <?php selected($status_filter, 'pending'); ?>>Pending</option>
                         <option value="paid" <?php selected($status_filter, 'paid'); ?>>Paid</option>
                         <option value="failed" <?php selected($status_filter, 'failed'); ?>>Failed</option>
+                        <option value="cancelled" <?php selected($status_filter, 'cancelled'); ?>>Cancelled</option>
                         <option value="refunded" <?php selected($status_filter, 'refunded'); ?>>Refunded</option>
                     </select>
                     
@@ -4835,7 +4830,7 @@ function puzzlepath_bookings_page() {
                         </th>
                         <th class="manage-column sortable <?php echo ($orderby === 'tickets') ? ($order === 'ASC' ? 'asc' : 'desc') : 'desc'; ?>">
                             <a href="<?php echo add_query_arg(array('orderby' => 'tickets', 'order' => ($orderby === 'tickets' && $order === 'ASC') ? 'desc' : 'asc')); ?>">
-                                <span>Tickets</span>
+                                <span>Tickets / Carloads</span>
                                 <span class="sorting-indicator"></span>
                             </a>
                         </th>
@@ -4851,6 +4846,7 @@ function puzzlepath_bookings_page() {
                                 <span class="sorting-indicator"></span>
                             </a>
                         </th>
+                        <th>Quest Progress</th>
                         <th class="manage-column sortable <?php echo ($orderby === 'created_at') ? ($order === 'ASC' ? 'asc' : 'desc') : 'desc'; ?>">
                             <a href="<?php echo add_query_arg(array('orderby' => 'created_at', 'order' => ($orderby === 'created_at' && $order === 'ASC') ? 'desc' : 'asc')); ?>">
                                 <span>Date</span>
@@ -4863,7 +4859,7 @@ function puzzlepath_bookings_page() {
                 <tbody>
                     <?php if (empty($bookings)): ?>
                         <tr>
-                            <td colspan="10" style="text-align: center; padding: 20px;">No bookings found.</td>
+                            <td colspan="11" style="text-align: center; padding: 20px;">No bookings found.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($bookings as $booking): ?>
@@ -4897,26 +4893,16 @@ function puzzlepath_bookings_page() {
                                 <td><?php echo $booking->tickets; ?></td>
                                 <td>$<?php echo number_format($booking->total_price, 2); ?>
                                     <?php if ($booking->coupon_code): ?>
-                                        <br><small>Coupon: <?php echo esc_html($booking->coupon_code); ?></small>
+                                        <br><small>Coupon: <?php echo esc_html(function_exists('pp_rh_label') ? pp_rh_label($booking->coupon_code) : $booking->coupon_code); ?></small>
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <?php 
-                                    $status_colors = [
-                                        'pending' => '#dba617',
-                                        'paid' => '#00a32a', 
-                                        'failed' => '#d63638',
-                                        'refunded' => '#8c8f94'
-                                    ];
-                                    $status_color = isset($status_colors[$booking->payment_status]) ? $status_colors[$booking->payment_status] : '#8c8f94';
-                                    ?>
-                                    <span style="background: <?php echo $status_color; ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
-                                        <?php echo esc_html($booking->payment_status); ?>
-                                    </span>
+                                    <?php echo puzzlepath_payment_status_badge($booking->payment_status); ?>
                                     <?php if (isset($booking->is_tester) && $booking->is_tester == 1): ?>
                                         <br><span style="background: #27ae60; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; text-transform: uppercase; display: inline-block; margin-top: 3px;">🧪 TESTER</span>
                                     <?php endif; ?>
                                 </td>
+                                <td><?php echo puzzlepath_progress_badge($booking->id); ?></td>
                                 <td><?php echo date('M j, Y', strtotime($booking->created_at)); ?></td>
                                 <td>
                                     <a href="#" onclick="showBookingDetails(<?php echo $booking->id; ?>); return false;" title="View Details">👁️</a>
@@ -5182,9 +5168,12 @@ function puzzlepath_get_booking_stats($where_sql = '', $where_values = []) {
     $stats['total_revenue'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, array_merge($where_values, ['paid'])));
     
     // Pending payments
+    $unpaid_where = $where_sql ? $where_sql . " AND b.payment_status = 'unpaid'" : "WHERE b.payment_status = 'unpaid'";
+    $query = "SELECT COUNT(*) FROM $bookings_table b LEFT JOIN $events_table e ON b.event_id = e.id $unpaid_where";
+    $stats['unpaid_payments'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, $where_values));
     $pending_where = $where_sql ? $where_sql . " AND b.payment_status = 'pending'" : "WHERE b.payment_status = 'pending'";
     $query = "SELECT COUNT(*) FROM $bookings_table b LEFT JOIN $events_table e ON b.event_id = e.id $pending_where";
-    $stats['pending_payments'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, array_merge($where_values, ['pending'])));
+    $stats['pending_payments'] = empty($where_values) ? $wpdb->get_var($query) : $wpdb->get_var($wpdb->prepare($query, $where_values));
     
     // Total participants
     $query = "SELECT COALESCE(SUM(b.tickets), 0) $base_query";
@@ -5262,21 +5251,23 @@ function puzzlepath_process_refund($booking_id) {
  */
 function puzzlepath_resend_confirmation_email($booking_id) {
     global $wpdb;
-    
     $booking = $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM {$wpdb->prefix}pp_bookings WHERE id = %d", 
-        $booking_id
+        "SELECT * FROM {$wpdb->prefix}pp_bookings WHERE id = %d", $booking_id
     ));
-    
-    if ($booking && class_exists('PuzzlePath_Stripe_Integration')) {
-        $stripe_instance = PuzzlePath_Stripe_Integration::get_instance();
-        if (method_exists($stripe_instance, 'send_confirmation_email')) {
-            // Use reflection to call private method
-            $reflection = new ReflectionClass($stripe_instance);
-            $method = $reflection->getMethod('send_confirmation_email');
-            $method->setAccessible(true);
-            $method->invoke($stripe_instance, $booking, $booking->booking_code);
-        }
+    if (!$booking || $booking->payment_status !== 'paid') {
+        return ['success' => false, 'error' => 'Confirmation email was not sent: the booking must exist and be Paid.'];
+    }
+    if (!class_exists('PuzzlePath_Stripe_Integration')) {
+        return ['success' => false, 'error' => 'Confirmation email service is unavailable.'];
+    }
+    try {
+        $sent = PuzzlePath_Stripe_Integration::get_instance()->send_confirmation_email($booking, $booking->booking_code);
+        if (!$sent) { return ['success' => false, 'error' => 'The mail system did not accept the confirmation email. Check your email service settings and logs, then retry.']; }
+        PuzzlePath_Audit_Logger::log_booking_action($booking->id, 'confirmation_email_resent', null, null, 'Confirmation email accepted by the mail system after admin resend.');
+        return ['success' => true];
+    } catch (Throwable $e) {
+        error_log('PuzzlePath confirmation resend failed: ' . get_class($e));
+        return ['success' => false, 'error' => 'The confirmation email could not be sent. Check your email service logs, then retry.'];
     }
 }
 
@@ -5424,7 +5415,7 @@ function puzzlepath_get_booking_details_ajax() {
         </tr>
         <?php endif; ?>
         <tr>
-            <th>Tickets:</th>
+            <th>Tickets / Carloads:</th>
             <td><?php echo $booking->tickets; ?></td>
         </tr>
         <tr>
@@ -5434,18 +5425,17 @@ function puzzlepath_get_booking_details_ajax() {
         <?php if ($booking->coupon_code): ?>
         <tr>
             <th>Coupon:</th>
-            <td><?php echo esc_html($booking->coupon_code); ?> (<?php echo $booking->discount_percent; ?>% off)</td>
+            <td><?php echo esc_html(function_exists('pp_rh_label') ? pp_rh_label($booking->coupon_code) : $booking->coupon_code); ?> (<?php echo $booking->discount_percent; ?>% off)</td>
         </tr>
         <?php endif; ?>
         <tr>
+            <th>Quest Progress:</th>
+            <td><?php echo puzzlepath_progress_badge($booking->id, true); ?></td>
+        </tr>
+        <tr>
             <th>Payment Status:</th>
             <td>
-                <span style="background: <?php 
-                    echo $booking->payment_status === 'paid' ? '#00a32a' :
-                         ($booking->payment_status === 'pending' ? '#dba617' : '#d63638'); 
-                ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
-                    <?php echo esc_html($booking->payment_status); ?>
-                </span>
+                <?php echo puzzlepath_payment_status_badge($booking->payment_status); ?>
             </td>
         </tr>
         <?php if ($booking->stripe_payment_intent_id): ?>
@@ -5539,7 +5529,7 @@ function puzzlepath_get_edit_booking_form_ajax() {
             </tr>
             <?php endif; ?>
             <tr>
-                <th><label for="edit-tickets">Number of Tickets:</label></th>
+                <th><label for="edit-tickets">Tickets / Carloads:</label></th>
                 <td><input type="number" id="edit-tickets" name="tickets" value="<?php echo esc_attr($booking->tickets); ?>" min="1" max="50" class="small-text" required /></td>
             </tr>
             <tr>
@@ -5549,18 +5539,21 @@ function puzzlepath_get_edit_booking_form_ajax() {
             <?php if ($booking->coupon_code): ?>
             <tr>
                 <th>Coupon:</th>
-                <td><input type="text" value="<?php echo esc_attr($booking->coupon_code); ?> (<?php echo $booking->discount_percent; ?>% off)" class="regular-text" readonly style="background: #f7f7f7;" /></td>
+                <td><input type="text" value="<?php echo esc_attr(function_exists('pp_rh_label') ? pp_rh_label($booking->coupon_code) : $booking->coupon_code); ?> (<?php echo $booking->discount_percent; ?>% off)" class="regular-text" readonly style="background: #f7f7f7;" /></td>
             </tr>
             <?php endif; ?>
             <tr>
                 <th><label for="edit-payment-status">Payment Status:</label></th>
                 <td>
                     <select id="edit-payment-status" name="payment_status" class="regular-text" required>
+                        <option value="unpaid" <?php selected($booking->payment_status, 'unpaid'); ?>>Unpaid</option>
                         <option value="pending" <?php selected($booking->payment_status, 'pending'); ?>>Pending</option>
                         <option value="paid" <?php selected($booking->payment_status, 'paid'); ?>>Paid</option>
                         <option value="failed" <?php selected($booking->payment_status, 'failed'); ?>>Failed</option>
+                        <option value="cancelled" <?php selected($booking->payment_status, 'cancelled'); ?>>Cancelled</option>
                         <option value="refunded" <?php selected($booking->payment_status, 'refunded'); ?>>Refunded</option>
                     </select>
+                    <?php echo puzzlepath_payment_status_guide(); ?>
                 </td>
             </tr>
             <?php if ($booking->participant_names): ?>
@@ -5616,7 +5609,7 @@ function puzzlepath_save_booking_changes_ajax() {
         return;
     }
     
-    if (!in_array($payment_status, ['pending', 'paid', 'failed', 'refunded'])) {
+    if (!in_array($payment_status, ['unpaid', 'pending', 'paid', 'failed', 'cancelled', 'refunded'])) {
         wp_send_json_error('Invalid payment status.');
         return;
     }
@@ -5757,10 +5750,14 @@ function puzzlepath_get_quest_details_ajax() {
         <?php endif; ?>
         <?php endif; ?>
         <tr>
-            <th>Quest Type:</th>
+            <th>Quest Format:</th>
             <td><span style="background: <?php echo $quest->hosting_type === 'hosted' ? '#00a32a' : '#2271b1'; ?>; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase;">
                 <?php echo esc_html($quest->hosting_type === 'hosted' ? 'LIVE' : 'ANYTIME'); ?>
             </span></td>
+        </tr>
+        <tr>
+            <th>Travel Mode:</th>
+            <td><?php echo esc_html(puzzlepath_travel_modes()[$quest->quest_type ?? 'walking'] ?? 'Mixed'); ?></td>
         </tr>
         <?php if ($quest->event_date): ?>
         <tr>
@@ -5873,6 +5870,15 @@ add_action('wp_ajax_get_quest_details', 'puzzlepath_get_quest_details_ajax');
 /**
  * AJAX handler for edit quest form
  */
+function puzzlepath_travel_modes() {
+    return [
+        'walking' => 'Walking',
+        'driving' => 'Driving',
+        'cycling' => 'Cycling',
+        'mixed' => 'Mixed',
+    ];
+}
+
 function puzzlepath_get_edit_quest_form_ajax() {
     check_ajax_referer('edit_quest_nonce', 'nonce');
     
@@ -5916,10 +5922,6 @@ function puzzlepath_get_edit_quest_form_ajax() {
                 <td><input type="text" id="edit-quest-title" name="title" value="<?php echo esc_attr($quest->title); ?>" class="regular-text" required /></td>
             </tr>
             <tr>
-                <th><label for="edit-hunt-name">Hunt Name:</label></th>
-                <td><input type="text" id="edit-hunt-name" name="hunt_name" value="<?php echo esc_attr($quest->hunt_name); ?>" class="regular-text" /></td>
-            </tr>
-            <tr>
                 <th><label for="edit-location">Quest Area/Region:</label></th>
                 <td>
                     <input type="text" id="edit-location" name="location" value="<?php echo esc_attr($quest->location); ?>" class="regular-text" required />
@@ -5954,13 +5956,24 @@ function puzzlepath_get_edit_quest_form_ajax() {
                 </td>
             </tr>
             <tr>
-                <th><label for="edit-hosting-type">Quest Type:</label></th>
+                <th><label for="edit-hosting-type">Quest Format:</label></th>
                 <td>
                     <select id="edit-hosting-type" name="hosting_type" class="regular-text" required>
                         <option value="self-hosted" <?php selected($quest->hosting_type, 'self-hosted'); ?>>ANYTIME Quest (Self-hosted)</option>
                         <option value="hosted" <?php selected($quest->hosting_type, 'hosted'); ?>>LIVE Quest (Scheduled)</option>
                         <option value="inactive" <?php selected($quest->hosting_type, 'inactive'); ?>>Inactive</option>
                     </select>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="edit-travel-mode">Travel Mode:</label></th>
+                <td>
+                    <select id="edit-travel-mode" name="quest_type" class="regular-text" required>
+                        <?php foreach (puzzlepath_travel_modes() as $mode => $label): ?>
+                            <option value="<?php echo esc_attr($mode); ?>" <?php selected($quest->quest_type ?? 'walking', $mode); ?>><?php echo esc_html($label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="description">How participants travel during this quest. Mixed uses more than one travel mode.</p>
                 </td>
             </tr>
             <?php if ($quest->hosting_type === 'hosted'): ?>
@@ -5994,9 +6007,9 @@ function puzzlepath_get_edit_quest_form_ajax() {
                                 <p><small>Current quest image (displayed on public quest listings)</small></p>
                             </div>
                         <?php endif; ?>
-                        <input type="file" id="edit-quest-image" name="quest_image" accept="image/*" style="margin-bottom: 5px;" />
+                        <input type="file" id="edit-quest-image" name="quest_image" accept="image/webp,image/jpeg,image/png,image/gif" aria-describedby="quest-image-help" style="margin-bottom: 5px;" />
                         <input type="hidden" id="edit-quest-image-url" name="quest_image_url" value="<?php echo esc_attr($quest->quest_image_url ?: ''); ?>" />
-                        <p class="description">Upload the main quest image (shown on quest listings - JPG, PNG, GIF - max 4MB)</p>
+                        <p class="description" id="quest-image-help">Maximum 2 MB per quest image. Use WebP for faster loading; aim for under 500 KB. JPG, PNG and GIF are also accepted. The full image fits inside the listing area without cropping.</p>
                         <?php if ($quest->quest_image_url): ?>
                             <p><button type="button" class="button" onclick="removeQuestImage()">Remove Current Image</button></p>
                         <?php endif; ?>
@@ -6070,7 +6083,13 @@ function puzzlepath_save_quest_changes_ajax() {
     
     // Validate and sanitize input
     $title = sanitize_text_field($_POST['title']);
-    $hunt_name = sanitize_text_field($_POST['hunt_name']);
+    // Keep the legacy integration name aligned with the single visible quest name.
+    $hunt_name = $title;
+    $quest_type = sanitize_text_field(wp_unslash($_POST['quest_type'] ?? ''));
+    if (!array_key_exists($quest_type, puzzlepath_travel_modes())) {
+        wp_send_json_error('Please select a valid travel mode.');
+        return;
+    }
     $location = sanitize_text_field($_POST['location']);
     $hosting_type = sanitize_text_field($_POST['hosting_type']);
     $price = floatval($_POST['price']);
@@ -6123,6 +6142,7 @@ function puzzlepath_save_quest_changes_ajax() {
     $update_data = [
         'title' => $title,
         'hunt_name' => $hunt_name,
+        'quest_type' => $quest_type,
         'location' => $location,
         'hosting_type' => $hosting_type,
         'price' => $price,
@@ -6147,7 +6167,7 @@ function puzzlepath_save_quest_changes_ajax() {
         $events_table,
         $update_data,
         ['id' => $quest_id],
-        ['%s', '%s', '%s', '%s', '%f', '%d', '%d', '%s', '%s', '%d', '%s', '%s', '%s'],
+        ['%s', '%s', '%s', '%s', '%s', '%f', '%d', '%d', '%s', '%s', '%d', '%s', '%s', '%s'],
         ['%d']
     );
     
@@ -7171,7 +7191,7 @@ function puzzlepath_quests_page() {
                 <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo array_sum(array_column($quests, 'clue_count')); ?></p>
             </div>
             <div class="stat-box" style="background: #fff; padding: 15px; border-left: 4px solid #d63638; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
-                <h3 style="margin: 0; color: #d63638;">Total Completions</h3>
+                <h3 style="margin: 0; color: #d63638;">Total Bookings</h3>
                 <p style="font-size: 24px; margin: 5px 0; font-weight: bold;"><?php echo array_sum(array_column($quests, 'total_completions')); ?></p>
             </div>
         </div>
@@ -7230,7 +7250,7 @@ function puzzlepath_quests_page() {
                     </th>
                     <th>Clues</th>
                     <th>Duration</th>
-                    <th>Completions</th>
+                    <th>Bookings</th>
                     <th data-sort="is_hidden" class="sortable-header">
                         Status
                         <span class="sort-indicator"></span>
@@ -8325,16 +8345,16 @@ function puzzlepath_quests_page() {
         jQuery(document).on('change', '#edit-quest-image', function(e) {
             var file = e.target.files[0];
             if (file) {
-                // Validate file size (4MB max)
-                if (file.size > 4 * 1024 * 1024) {
-                    alert('File size must be less than 4MB');
+                // Validate file size (2 MB max), matching the server limit.
+                if (file.size > 2 * 1024 * 1024) {
+                    alert('Quest images must be 2 MB or smaller. Use WebP and aim for under 500 KB.');
                     e.target.value = '';
                     return;
                 }
                 
                 // Validate file type
-                if (!file.type.match('image.*')) {
-                    alert('Please select a valid image file');
+                if (['image/webp', 'image/jpeg', 'image/png', 'image/gif'].indexOf(file.type) === -1) {
+                    alert('Please select a WebP, JPG, PNG or GIF image. WebP is recommended.');
                     e.target.value = '';
                     return;
                 }
@@ -8706,17 +8726,28 @@ function puzzlepath_handle_quest_image_upload($file) {
         ];
     }
     
-    // Validate file size (4MB max)
-    if ($file['size'] > 4 * 1024 * 1024) {
+    // Validate file size (2 MB max), including the actual temporary file size.
+    $actual_size = filesize($file['tmp_name']);
+    if ($actual_size === false || $actual_size <= 0) {
+        return ['success' => false, 'error' => 'The uploaded image could not be read. Please select it again.'];
+    }
+    if ($file['size'] > 2 * 1024 * 1024 || $actual_size > 2 * 1024 * 1024) {
         return [
             'success' => false,
-            'error' => 'File size must be less than 4MB'
+            'error' => 'Quest images must be 2 MB or smaller. Use WebP and aim for under 500 KB.'
         ];
     }
     
-    // Validate file type
+    // Validate the image contents and extension instead of trusting browser metadata.
+    $checked_type = wp_check_filetype_and_ext($file['tmp_name'], $file['name'], [
+        'jpg|jpeg|jpe' => 'image/jpeg',
+        'png' => 'image/png',
+        'gif' => 'image/gif',
+        'webp' => 'image/webp',
+    ]);
     $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!in_array($file['type'], $allowed_types)) {
+    if (empty($checked_type['ext']) || !in_array($checked_type['type'], $allowed_types, true)
+        || wp_get_image_mime($file['tmp_name']) !== $checked_type['type']) {
         return [
             'success' => false,
             'error' => 'Invalid file type. Only JPG, PNG, GIF, and WebP are allowed.'
@@ -8734,7 +8765,7 @@ function puzzlepath_handle_quest_image_upload($file) {
     }
     
     // Generate unique filename
-    $file_extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+    $file_extension = $checked_type['ext'];
     $filename = 'quest-' . time() . '-' . wp_generate_password(8, false) . '.' . $file_extension;
     $file_path = $puzzlepath_dir . '/' . $filename;
     
@@ -9229,3 +9260,12 @@ function puzzlepath_get_default_html_template() {
 </html>
 HTML;
 }
+
+/** Apply the new carload tariff once; existing booking totals remain unchanged. */
+function puzzlepath_apply_carload_pricing_20261015() {
+    if (!current_user_can('manage_options') || get_option('puzzlepath_carload_pricing_20261015')) { return; }
+    global $wpdb;
+    $result = $wpdb->update($wpdb->prefix . 'pp_events', array('price' => 19.95), array('display_on_site' => 1), array('%f'), array('%d'));
+    if ($result !== false) { update_option('puzzlepath_carload_pricing_20261015', current_time('mysql')); }
+}
+add_action('admin_init', 'puzzlepath_apply_carload_pricing_20261015');
