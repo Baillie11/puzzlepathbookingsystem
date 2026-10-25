@@ -1,0 +1,87 @@
+/* Decorative adventure layer. Existing page geometry and content stay intact. */
+#main { position: relative; isolation: isolate; }
+#main > section { position: relative; z-index: 1; }
+.adventure-route {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none !important;
+  user-select: none;
+  color: var(--aqua);
+  z-index: 10;
+}
+.adventure-route * { pointer-events: none !important; }
+.trail-ink { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; opacity: .48; }
+.trail-footprints { fill: currentColor; opacity: .65; }
+.adventure-route [data-trail="offer-crossing"] { color: #e1f7f2; }
+.adventure-route [data-trail="offer-crossing"] .trail-ink { opacity: .8; }
+.adventure-route [data-trail="offer-crossing"] .trail-footprints { opacity: .9; }
+.hero-visual > picture,
+.hero-visual > .photo-label { position: relative; z-index: 1; }
+.hero-visual > .photo-label { position: absolute; z-index: 2; }
+.hero-visual > .adventure-route { color: var(--teal); }
+.hero-visual .trail-ink { opacity: .52; }
+.how-section > .wrap { position: relative; z-index: 1; }
+.steps li { position: relative; }
+.steps.journey-arrived li { animation: step-arrival 600ms cubic-bezier(.22, 1, .36, 1) both; }
+.steps.journey-arrived li:nth-child(2) { animation-delay: 350ms; }
+.steps.journey-arrived li:nth-child(3) { animation-delay: 700ms; }
+@keyframes step-arrival {
+  0% { transform: translateY(9px); }
+  65% { transform: translateY(-2px); }
+  100% { transform: none; }
+}
+.quest-grid { position: relative; }
+.quest-card {
+  --postcard-angle: -2deg;
+  position: relative;
+  transform-origin: 50% 58%;
+  transition: transform 520ms cubic-bezier(.34, 1.56, .64, 1), box-shadow 220ms ease;
+}
+.quest-slot:nth-child(even) .quest-card { --postcard-angle: 2deg; }
+.quest-slot:focus-within { z-index: 4; }
+@media (hover: hover) and (pointer: fine) {
+  .quest-slot:hover { z-index: 4; }
+}
+.quest-art img { transition: transform 520ms cubic-bezier(.22, 1, .36, 1); }
+.quest-card:focus-within {
+  transform: translateY(-8px) rotate(var(--postcard-angle));
+  box-shadow: 0 16px 32px #07555924;
+  z-index: 3;
+}
+.quest-card:focus-within .quest-art img { transform: scale(1.02); }
+.quest-card:focus-within .booking-link { background: #ffc673; }
+@media (hover: hover) and (pointer: fine) {
+  .quest-card:hover {
+    transform: translateY(-8px) rotate(var(--postcard-angle));
+    box-shadow: 0 16px 32px #07555924;
+    z-index: 3;
+  }
+  .quest-card:hover .quest-art img { transform: scale(1.02); }
+  .quest-card:hover .booking-link { background: #ffc673; }
+}
+@media (hover: none), (pointer: coarse) {
+  .quest-card:focus-within { transform: none; }
+  .quest-card:focus-within .quest-art img { transform: none; }
+  .quest-card.is-tapped { transform: translateY(-3px) rotate(calc(var(--postcard-angle) * .35)); }
+}
+.final-section > .adventure-route { color: #b1e4df; }
+.final-section > .wrap { position: relative; z-index: 1; }
+.final-section.destination-arrived > .wrap { animation: destination-arrival 650ms cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes destination-arrival {
+  from { transform: translateY(7px); }
+  to { transform: none; }
+}
+@media (max-width: 799px) {
+  .adventure-route .trail-ink { stroke-width: 2; opacity: .42; }
+  .adventure-route .trail-footprints { opacity: .55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-card, .quest-art img { transition: none !important; }
+  .quest-card:hover, .quest-card:focus-within, .quest-card.is-tapped,
+  .quest-card:hover .quest-art img, .quest-card:focus-within .quest-art img { transform: none !important; }
+  .steps.journey-arrived li,
+  .final-section.destination-arrived > .wrap { animation: none !important; }
+}

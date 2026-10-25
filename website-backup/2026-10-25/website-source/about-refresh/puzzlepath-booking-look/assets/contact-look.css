@@ -1,0 +1,63 @@
+/* Scoped presentation; WPForms owns fields, validation, spam protection and delivery. */
+body.pp-contact-look {background:#f8f5e9;color:#154f4b;font-family:'Trebuchet MS',Arial,sans-serif;}
+.pp-contact-look #page,.pp-contact-look #content,.pp-contact-look #post-8 {background:#f8f5e9;}
+.pp-contact-look #post-8 {padding:0;overflow:hidden;}
+.pp-contact-look #post-8 > .entry-header {display:none;}
+.pp-contact-look #primary {margin:0;}
+.pp-contact-look .ast-primary-header-bar {background:#eee9d5;border:0;border-radius:0 0 44% 12% / 0 0 15% 12%;padding:12px 0;}
+.pp-contact-look .main-header-menu .menu-link {font-family:'Trebuchet MS',Arial,sans-serif;font-weight:700;}
+.pp-contact-look .ast-button-wrap .menu-toggle.main-header-menu-toggle {background:#d9e3b8;border-radius:12px;border-color:#bdcba6;}
+.pp-contact-look #content .ast-container {max-width:none;padding:0;}
+.pp-contact-look #post-8 .elementor-8 > .e-parent {padding:0;}
+.pp-contact-look #post-8 .elementor-8 > .e-parent > .e-con-inner {max-width:1280px;padding:0 36px !important;}
+.pp-contact-look #post-8 .elementor-widget-text-editor {width:100%;}
+.pp-contact-look #post-8 .pp-contact {max-width:1180px;margin:0 auto;padding:24px 0 80px;color:#154f4b;font:17px/1.7 'Trebuchet MS',Arial,sans-serif;}
+.pp-contact-look #post-8 .pp-contact-intro {position:relative;text-align:left;min-height:250px;padding:38px 240px 26px 0;margin:0 0 24px;display:flex;flex-direction:column;justify-content:center;}
+.pp-contact-look #post-8 .pp-contact-intro::after {content:'';position:absolute;right:60px;top:0;width:180px;height:250px;background:url('koko-transparent.png') center/contain no-repeat;pointer-events:none;}
+.pp-contact-look #post-8 .pp-contact h1 {font:800 clamp(40px,5vw,64px)/1.05 'Trebuchet MS',Arial,sans-serif;letter-spacing:-.045em;color:#154f4b;margin:0 0 16px;}
+.pp-contact-look #post-8 .pp-contact-intro p {font:18px/1.65 'Trebuchet MS',Arial,sans-serif;color:#154f4b;max-width:480px;}
+.pp-contact-look #post-8 .pp-contact-grid {display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:80px;align-items:start;}
+.pp-contact-look #post-8 .pp-contact-form {padding:34px;background:#fffdf5;border:1px solid #d3d8bd;border-top:7px solid #d9e3b8;border-radius:28px;box-shadow:0 12px 32px #154f4b09;position:relative;}
+.pp-contact-look #post-8 .pp-contact-info {position:relative;isolation:isolate;margin:48px 0 0;padding:65px 44px;background:none;border:0;border-radius:0;box-shadow:none;}
+.pp-contact-look #post-8 .pp-contact-info::before {content:'';position:absolute;inset:-65px -80px;width:calc(100% + 160px);height:calc(100% + 130px);background:url('about-island-3.svg') center/100% 100% no-repeat;z-index:-1;pointer-events:none;}
+.pp-contact-look #post-8 .elementor-8 {background:url('about-island-4.svg') -150px 90%/260px 214px no-repeat,url('about-island-5.svg') calc(100% + 130px) 15%/240px 197px no-repeat;}
+.pp-contact-look #post-8 .pp-contact :is(h2,h3) {color:#154f4b;font-family:'Trebuchet MS',Arial,sans-serif;font-weight:800;letter-spacing:-.03em;line-height:1.2;}
+.pp-contact-look #post-8 .pp-contact h2 {font-size:30px;margin:0 0 24px;}
+.pp-contact-look #post-8 .pp-contact h3 {font-size:24px;margin:26px 0 14px;}
+.pp-contact-look #post-8 .pp-contact dt {font-size:15px;font-weight:700;color:#154f4b;margin:18px 0 4px;}
+.pp-contact-look #post-8 .pp-contact dd {font-size:17px;line-height:1.6;}
+.pp-contact-look #post-8 .pp-contact-info a {color:#154f4b;text-underline-offset:3px;}
+.pp-contact-look #post-8 .pp-contact-socials {gap:10px;}
+.pp-contact-look #post-8 .pp-contact-socials .pp-social {min-height:44px;padding:10px 15px;border:1px solid #154f4b;border-radius:30px;background:#154f4b;color:#fff;font:700 14px/1.4 'Trebuchet MS',Arial,sans-serif;}
+.pp-contact-look #post-8 .pp-social:hover {background:#286b59;}
+.pp-contact-look #post-8 .pp-social-instagram::before {mask-image:url('instagram.svg');-webkit-mask-image:url('instagram.svg');}
+.pp-contact-look #post-8 .wpforms-form :is(input:not([type=hidden]),textarea) {border:1px solid #b6c2a5;border-radius:12px;background:#fff;color:#154f4b;font:16px/1.5 'Trebuchet MS',Arial,sans-serif;padding:12px 14px;}
+.pp-contact-look #post-8 .wpforms-form input:not([type=hidden]) {min-height:50px;}
+.pp-contact-look #post-8 .wpforms-form textarea {min-height:165px;}
+.pp-contact-look #post-8 .wpforms-form ::placeholder {color:#52635a;opacity:1;}
+.pp-contact-look #post-8 .wpforms-form button[type=submit] {background:#154f4b;color:#fff;border:0;border-radius:30px;min-height:48px;padding:14px 26px;font:700 16px/1.4 'Trebuchet MS',Arial,sans-serif;text-transform:none;}
+.pp-contact-look #post-8 .wpforms-form button[type=submit]:hover {background:#286b59;}
+.pp-contact-look #post-8 .wpforms-form button[type=submit]:disabled {opacity:.6;cursor:wait;}
+.pp-contact-look #post-8 :is(a,input,textarea,button):focus-visible {outline:3px solid #b2601a;outline-offset:3px;}
+.pp-contact-look #post-8 .wpforms-error {color:#a12f23;font-family:'Trebuchet MS',Arial,sans-serif;}
+.pp-contact-look .site-footer,.pp-contact-look .site-footer [class*='footer-wrap'] {background:#eee9d5;color:#154f4b;border-color:#d3d8bd;}
+.pp-contact-look .site-footer :is(p,span,a) {color:#154f4b;font-family:'Trebuchet MS',Arial,sans-serif;}
+@media(max-width:1000px) {.pp-contact-look #post-8 .pp-contact-grid {gap:40px;}.pp-contact-look #post-8 .pp-contact-info {padding:65px 34px;}.pp-contact-look #post-8 .pp-contact-info::before {left:-60px;right:-60px;width:calc(100% + 120px);}}
+@media(max-width:767px) {
+.pp-contact-look #post-8 .elementor-8 > .e-parent > .e-con-inner {padding:0 20px !important;}
+.pp-contact-look #post-8 .pp-contact {padding:20px 0 60px;}
+.pp-contact-look #post-8 .pp-contact-intro {padding:12px 110px 12px 0;min-height:190px;margin:0 0 20px;}
+.pp-contact-look #post-8 .pp-contact-intro::after {width:100px;height:165px;right:0;top:10px;}
+.pp-contact-look #post-8 .pp-contact h1 {font-size:clamp(32px,7vw,44px);}
+.pp-contact-look #post-8 .pp-contact-intro p {font-size:16px;}
+.pp-contact-look #post-8 .pp-contact-grid {grid-template-columns:minmax(0,1fr);gap:45px;}
+.pp-contact-look #post-8 .pp-contact-form {padding:26px 22px;}
+.pp-contact-look #post-8 .pp-contact-info {margin:0;padding:65px 40px;}
+.pp-contact-look #post-8 .pp-contact-info::before {inset:-45px -60px;width:calc(100% + 120px);height:calc(100% + 90px);}
+.pp-contact-look #post-8 .pp-contact h2 {font-size:27px;}
+.pp-contact-look #post-8 .pp-contact dd {font-size:16px;}
+}
+
+
+.pp-contact-look #post-8 .pp-contact-info {text-align:center;}
+.pp-contact-look #post-8 .pp-contact-socials {justify-content:center;}

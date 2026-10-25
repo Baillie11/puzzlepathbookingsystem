@@ -1,0 +1,147 @@
+[
+  {
+    "fields": [
+      {
+        "id": "0",
+        "type": "name",
+        "label": "Your Name ",
+        "format": "simple",
+        "description": "",
+        "required": "1",
+        "size": "large",
+        "simple_placeholder": "Your Name ",
+        "simple_default": "",
+        "first_placeholder": "",
+        "first_default": "",
+        "middle_placeholder": "",
+        "middle_default": "",
+        "last_placeholder": "",
+        "last_default": "",
+        "css": "",
+        "label_hide": "1"
+      },
+      {
+        "id": "1",
+        "type": "email",
+        "label": "Email",
+        "description": "",
+        "required": "1",
+        "size": "large",
+        "placeholder": "Email Address",
+        "confirmation_placeholder": "",
+        "default_value": "",
+        "filter_type": "",
+        "allowlist": "",
+        "denylist": "",
+        "css": "",
+        "label_hide": "1"
+      },
+      {
+        "id": "2",
+        "type": "textarea",
+        "label": "Your Message",
+        "description": "",
+        "required": "1",
+        "size": "medium",
+        "placeholder": "Message",
+        "limit_count": "1",
+        "limit_mode": "characters",
+        "default_value": "",
+        "css": "",
+        "label_hide": "1"
+      }
+    ],
+    "id": "10",
+    "field_id": 5,
+    "settings": {
+      "themes": {
+        "wpformsTheme": "default",
+        "isCustomTheme": "",
+        "themeName": "",
+        "fieldSize": "medium",
+        "fieldBorderStyle": "solid",
+        "fieldBorderSize": "1",
+        "fieldBorderRadius": "3",
+        "fieldBackgroundColor": "#ffffff",
+        "fieldBorderColor": "rgba(0, 0, 0, 0.25)",
+        "fieldTextColor": "rgba(0, 0, 0, 0.7)",
+        "labelSize": "medium",
+        "labelColor": "rgba(0, 0, 0, 0.85)",
+        "labelSublabelColor": "rgba(0, 0, 0, 0.55)",
+        "labelErrorColor": "#d63637",
+        "buttonSize": "medium",
+        "buttonBorderStyle": "none",
+        "buttonBorderSize": "1",
+        "buttonBorderRadius": "3",
+        "buttonBackgroundColor": "#066aab",
+        "buttonBorderColor": "#066aab",
+        "buttonTextColor": "#ffffff",
+        "containerPadding": "0",
+        "containerBorderStyle": "none",
+        "containerBorderWidth": "1",
+        "containerBorderRadius": "3",
+        "containerBorderColor": "#000000",
+        "containerShadowSize": "none",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "backgroundImage": "none",
+        "backgroundSize": "cover",
+        "backgroundUrl": "url()",
+        "fieldMenuColor": "#ffffff",
+        "pageBreakColor": "#066aab",
+        "customCss": "",
+        "copyPasteJsonValue": "{\"themeName\":\"\",\"isCustomTheme\":\"\",\"wpformsTheme\":\"default\",\"customCss\":\"\",\"containerPadding\":\"0\",\"containerBorderStyle\":\"none\",\"containerBorderWidth\":\"1\",\"containerBorderRadius\":\"3\",\"containerShadowSize\":\"none\",\"containerBorderColor\":\"#000000\",\"fieldSize\":\"medium\",\"fieldBorderStyle\":\"solid\",\"fieldBorderRadius\":\"3\",\"fieldBorderSize\":\"1\",\"fieldBackgroundColor\":\"#ffffff\",\"fieldBorderColor\":\"rgba(0, 0, 0, 0.25)\",\"fieldTextColor\":\"rgba(0, 0, 0, 0.7)\",\"fieldMenuColor\":\"#ffffff\",\"pageBreakColor\":\"#066aab\",\"labelSize\":\"medium\",\"labelColor\":\"rgba(0, 0, 0, 0.85)\",\"labelSublabelColor\":\"rgba(0, 0, 0, 0.55)\",\"labelErrorColor\":\"#d63637\",\"buttonSize\":\"medium\",\"buttonBorderStyle\":\"none\",\"buttonBorderSize\":\"1\",\"buttonBorderRadius\":\"3\",\"buttonBackgroundColor\":\"#066aab\",\"buttonBorderColor\":\"#066aab\",\"buttonTextColor\":\"#ffffff\",\"backgroundColor\":\"rgba(0, 0, 0, 0)\",\"backgroundPosition\":\"center center\",\"backgroundUrl\":\"url()\",\"backgroundRepeat\":\"no-repeat\",\"backgroundSize\":\"cover\",\"backgroundSizeMode\":\"cover\",\"backgroundWidth\":\"100\",\"backgroundHeight\":\"100\",\"backgroundImage\":\"none\"}"
+      },
+      "form_title": "Contact Form",
+      "form_desc": "",
+      "submit_text": "SEND MESSAGE",
+      "submit_text_processing": "Sending...",
+      "qr_code": "none",
+      "qr_code_page_id": 0,
+      "qr_code_url": "",
+      "qr_code_logo": "wpforms",
+      "qr_code_generated": "",
+      "form_class": "",
+      "submit_class": "",
+      "notification_enable": "1",
+      "notifications": {
+        "1": {
+          "email": "info@puzzlepath.com.au",
+          "subject": "New Entry: Contact Form 1",
+          "sender_name": "Puzzle Path",
+          "sender_address": "info@puzzlepath.com.au",
+          "replyto": "{field_id=\"1\"}",
+          "message": "{all_fields}",
+          "template": ""
+        }
+      },
+      "confirmations": {
+        "1": {
+          "type": "message",
+          "message": "<p>Thanks for contacting us! We will be in touch with you shortly.</p>",
+          "message_scroll": "1",
+          "page": "7",
+          "page_url_parameters": "",
+          "redirect": ""
+        }
+      },
+      "honeypot": "0",
+      "anti_spam": {
+        "time_limit": {
+          "duration": "2"
+        },
+        "filtering_store_spam": "1"
+      },
+      "form_tags": [],
+      "store_spam_entries": "0",
+      "qr_code_logo_id": 0,
+      "antispam_v3": "1"
+    },
+    "search_terms": "",
+    "providers": {
+      "constant-contact-v3": []
+    },
+    "meta": {
+      "template": "contact"
+    }
+  }
+]

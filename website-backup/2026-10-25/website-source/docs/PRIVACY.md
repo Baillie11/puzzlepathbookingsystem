@@ -1,0 +1,10 @@
+# Campaign analytics decision
+The current build collects no analytics data. It emits bounded in-page `puzzlepath:campaign` CustomEvents for `landing_visit`, `quest_selection` and `outbound_booking_click`, but has no network collector, cookies, storage or visitor identifier.
+Only campaign, allowlisted distribution category and numeric quest ID are available to a future listener. Never include page URLs, raw query strings, referrers, names, email addresses, booking/access codes or payment details.
+`?placement=hotel`, `cafe`, `tourist_information` and `other` are supported distribution categories. Unknown values are discarded. Individual partner/location IDs require an explicit allowlist and policy review.
+Booking links always contain the fixed campaign and source fields. With JavaScript available, a recognized placement is forwarded as UTM content. With JavaScript disabled, fixed campaign attribution still works, but placement is not forwarded.
+Do Not Track and Global Privacy Control suppress local analytics events. No request is required to follow a booking link and no click handler prevents navigation.
+Before enabling measurement, decide the collector/operator, storage region, retention, IP handling, access controls, permitted purpose, disclosure and any cross-border processing. Review the Australian Privacy Act/APP applicability and the existing business privacy policy; cookieless analytics is not automatically consent-free or exempt from disclosure requirements.
+No legal conclusion about consent is assumed. Obtain appropriate privacy advice. If opt-in is required, wire the collector only after consent and provide a withdrawal mechanism. Do not introduce a popup merely for the current no-collector implementation.
+Hosting access logs may still contain IP addresses and requested URLs; configure their retention and access separately. Never print brochure URLs containing personal information.
+The separate campaign privacy page describes this limited current behaviour, not a replacement for the business's full booking/privacy policy.

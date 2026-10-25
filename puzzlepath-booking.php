@@ -1276,6 +1276,14 @@ function puzzlepath_enqueue_scripts() {
     global $post;
     
     // Check multiple conditions for when to load scripts
+    // Capture QR vouchers on the home page before the visitor chooses a quest.
+    wp_enqueue_script(
+        'puzzlepath-discount-link',
+        plugin_dir_url(__FILE__) . 'js/discount-link.js',
+        array(),
+        filemtime(plugin_dir_path(__FILE__) . 'js/discount-link.js'),
+        false
+    );
     $should_load_scripts = false;
     
     // Condition 1: Post content contains booking shortcodes
@@ -1313,7 +1321,7 @@ function puzzlepath_enqueue_scripts() {
         wp_enqueue_script(
             'puzzlepath-booking-form',
             plugin_dir_url(__FILE__) . 'js/booking-form.js',
-            array('jquery'),
+            array('jquery', 'puzzlepath-discount-link'),
             filemtime(plugin_dir_path(__FILE__) . 'js/booking-form.js'), // Refresh booking script after updates
             true
         );
@@ -3674,6 +3682,8 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
                 if ($coupon) {
                     $total_price = $total_price - ($total_price * ($coupon->discount_percent / 100));
                     $coupon_id = $coupon->id;
+                } else {
+                    return new WP_Error('invalid_coupon', 'Your voucher is invalid, expired or fully used. Please remove it or enter another code before booking.', array('status' => 400));
                 }
             }
 

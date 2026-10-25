@@ -1,0 +1,9 @@
+# Configure these server-side in cPanel/PHP-FPM. This file is documentation, not an auto-loaded dotenv.
+PP_ENV=production
+PP_APP_ROOT=/home/ozbizfin/puzzlepath-landing-private
+PP_STORAGE=/home/ozbizfin/puzzlepath-landing-private/var
+# Requires the included read-only WordPress integration, installed after approval.
+PP_CATALOGUE_URL=https://puzzlepath.com.au/wp-json/puzzlepath-landing/v1/catalogue
+PP_BOOKING_VERIFIED=0
+PP_PROMOTION_VERIFIED=0
+PP_ANALYTICS=0

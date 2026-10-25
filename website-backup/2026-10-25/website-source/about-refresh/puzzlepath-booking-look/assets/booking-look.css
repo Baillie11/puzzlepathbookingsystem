@@ -1,0 +1,198 @@
+/* Page-scoped, presentation only. Never override visibility of booking states. */
+body.pp-booking-look {
+    --pp-paper: #f8f5e9;
+    --pp-ink: #154f4b;
+    --pp-sage: #d9e3b8;
+    --pp-sand: #f2dfab;
+    color: var(--pp-ink);
+    background: var(--pp-paper);
+    font-family: 'Trebuchet MS', Arial, sans-serif;
+}
+.pp-booking-look #page, .pp-booking-look #content,
+.pp-booking-look .elementor-element:has(#puzzlepath-booking-form) {
+    background: var(--pp-paper);
+}
+.pp-booking-look .elementor-widget-shortcode:has(#puzzlepath-booking-form) {
+    width: 100%;
+    max-width: 100%;
+}
+.pp-booking-look .ast-primary-header-bar,
+.pp-booking-look .ast-mobile-header-wrap .ast-primary-header-bar {
+    background: #eee9d5;
+    border: 0;
+    border-radius: 0 0 44% 12% / 0 0 15% 12%;
+    padding: 12px 0;
+}
+.pp-booking-look .main-header-menu .menu-link {
+    color: var(--pp-ink);
+    font-family: 'Trebuchet MS', Arial, sans-serif;
+    font-weight: 700;
+}
+.pp-booking-look .ast-button-wrap .mobile-menu-toggle-icon .ast-mobile-svg { fill: var(--pp-ink); }
+.pp-booking-look .ast-button-wrap .menu-toggle.main-header-menu-toggle {
+    background: var(--pp-sage);
+    color: var(--pp-ink);
+    border-radius: 12px;
+    border-color: #bdcba6;
+}
+.pp-booking-look #puzzlepath-booking-form {
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
+    grid-template-rows: auto auto 1fr;
+    column-gap: 64px;
+    width: 100%;
+    max-width: 1120px;
+    margin: 52px auto 64px;
+    padding: 20px 32px;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    color: var(--pp-ink);
+    font: 16px/1.6 'Trebuchet MS', Arial, sans-serif;
+}
+.pp-booking-look #puzzlepath-booking-form > h3 {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: end;
+    margin: 34px 0 8px;
+    text-align: left;
+    color: var(--pp-ink);
+    font: 800 clamp(36px, 4vw, 54px)/1.05 'Trebuchet MS', Arial, sans-serif;
+    letter-spacing: -.045em;
+}
+.pp-booking-look #puzzlepath-booking-form::before {
+    content: '';
+    grid-column: 1;
+    grid-row: 2;
+    height: 365px;
+    background: url('koko.jpg') center / contain no-repeat;
+    mix-blend-mode: multiply;
+    mask-image: radial-gradient(ellipse at center, #000 57%, #000c 64%, transparent 74%);
+    pointer-events: none;
+}
+.pp-booking-look #puzzlepath-booking-form::after {
+    content: '';
+    grid-column: 1;
+    grid-row: 3;
+    height: 180px;
+    background: url('footprints.svg') center / contain no-repeat;
+    pointer-events: none;
+}
+.pp-booking-look #booking-form,
+.pp-booking-look #payment-success {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    align-self: start;
+    min-width: 0;
+    margin: 0;
+    padding: 32px;
+    background: #fffdf5;
+    border: 1px solid #d3d8bd;
+    border-top: 7px solid var(--pp-sage);
+    border-radius: 28px;
+    box-shadow: 0 12px 32px #154f4b09;
+}
+.pp-booking-look #puzzlepath-booking-form .form-group { margin-bottom: 20px; }
+.pp-booking-look #puzzlepath-booking-form label {
+    margin-bottom: 7px;
+    color: var(--pp-ink);
+    font-size: 15px;
+    font-weight: 700;
+}
+.pp-booking-look #puzzlepath-booking-form input,
+.pp-booking-look #puzzlepath-booking-form select {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 50px;
+    padding: 12px 14px;
+    margin-bottom: 0;
+    border: 1px solid #b6c2a5;
+    border-radius: 12px;
+    background: #fff;
+    color: var(--pp-ink);
+    font: 16px/1.45 'Trebuchet MS', Arial, sans-serif;
+}
+.pp-booking-look #puzzlepath-booking-form #carload-pricing {
+    color: #52635a;
+    font-size: 14px;
+    line-height: 1.65;
+    margin: 10px 0 0;
+}
+.pp-booking-look #puzzlepath-booking-form button {
+    min-height: 48px;
+    padding: 12px 22px;
+    border: 0;
+    border-radius: 30px;
+    background: var(--pp-ink);
+    color: white;
+    font: 700 15px/1.4 'Trebuchet MS', Arial, sans-serif;
+    text-transform: none;
+    cursor: pointer;
+}
+.pp-booking-look #puzzlepath-booking-form button:hover { background: #286b59; }
+.pp-booking-look #puzzlepath-booking-form button:disabled { opacity: .6; cursor: not-allowed; }
+.pp-booking-look #puzzlepath-booking-form #apply-coupon {
+    background: #e6eccf;
+    color: var(--pp-ink);
+    margin-top: 10px;
+    border: 1px solid #bdcba6;
+}
+.pp-booking-look #puzzlepath-booking-form #submit-payment { width: 100%; }
+.pp-booking-look #puzzlepath-booking-form .price-summary {
+    margin: 22px 0;
+    padding: 18px 20px;
+    background: var(--pp-sand);
+    border-radius: 16px 24px 18px 22px;
+    color: var(--pp-ink);
+}
+.pp-booking-look #puzzlepath-booking-form .price-summary p { margin: 0 0 6px; }
+.pp-booking-look #puzzlepath-booking-form .price-summary p:last-child { margin: 0; font-size: 22px; }
+.pp-booking-look #puzzlepath-booking-form #card-element {
+    box-sizing: border-box;
+    padding: 15px 12px;
+    background: white;
+    border: 1px solid #b6c2a5;
+    border-radius: 12px;
+    margin: 0 0 12px;
+}
+.pp-booking-look #puzzlepath-booking-form #card-errors { color: #a12f23; }
+.pp-booking-look #puzzlepath-booking-form :is(input, select, button):focus-visible,
+.pp-booking-look a:focus-visible {
+    outline: 3px solid #b2601a;
+    outline-offset: 3px;
+}
+.pp-booking-look #puzzlepath-booking-form #card-element.StripeElement--focus {
+    outline: 3px solid #b2601a;
+    outline-offset: 3px;
+}
+.pp-booking-look #payment-success h3 { font-family: inherit; color: var(--pp-ink); }
+.pp-booking-look .site-footer,
+.pp-booking-look .site-footer [class*='footer-wrap'] {
+    background: #eee9d5;
+    color: var(--pp-ink);
+    border-color: #d3d8bd;
+}
+.pp-booking-look .site-footer :is(p, span, a) { color: var(--pp-ink); font-family: 'Trebuchet MS', Arial, sans-serif; }
+.pp-booking-look .site-footer a { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 850px) {
+    .pp-booking-look #puzzlepath-booking-form { column-gap: 28px; padding: 16px; }
+    .pp-booking-look #booking-form, .pp-booking-look #payment-success { padding: 24px; }
+    .pp-booking-look #puzzlepath-booking-form::before { height: 290px; }
+}
+@media (max-width: 650px) {
+    .pp-booking-look #puzzlepath-booking-form {
+        grid-template-columns: minmax(0, 1fr) 100px;
+        grid-template-rows: auto auto;
+        gap: 24px 8px;
+        margin: 24px auto 36px;
+        padding: 0 12px;
+        max-width: 540px;
+    }
+    .pp-booking-look #puzzlepath-booking-form > h3 { margin: 8px 0; font-size: clamp(28px, 6.5vw, 38px); }
+    .pp-booking-look #puzzlepath-booking-form::before { grid-column: 2; grid-row: 1; height: 140px; align-self: center; }
+    .pp-booking-look #puzzlepath-booking-form::after { grid-column: 1 / -1; grid-row: 3; height: 90px; }
+    .pp-booking-look #booking-form, .pp-booking-look #payment-success { grid-column: 1 / -1; grid-row: 2; padding: 22px 18px; border-radius: 22px; }
+}

@@ -3,23 +3,64 @@ jQuery(document).ready(function($) {
     var ticketCount = 1;
     var discountPercent = 0;
     var couponApplied = false;
+    var couponPending = false;
+    var couponRejected = false;
+    var couponSequence = 0;
+    var linkedCode = !window.ppRepeatHunter && window.ppDiscountLink ? window.ppDiscountLink.get() : '';
+    var voucherNotice;
+    if (linkedCode && $('#booking-form').length) {
+        voucherNotice = $('<p role="status">').text('Your voucher is saved. Select a quest to apply it. ');
+        var removeVoucher = $('<button type="button">').text('Remove voucher');
+        voucherNotice.append(removeVoucher);
+        $('#booking-form').prepend(voucherNotice);
+        removeVoucher.on('click', function() {
+            linkedCode = '';
+            window.ppDiscountLink.clear();
+            $('#coupon_code').val('').trigger('input');
+            voucherNotice.remove();
+        });
+    }
+
+    function resetCoupon() {
+        couponSequence++;
+        couponPending = false;
+        couponRejected = false;
+        couponApplied = false;
+        discountPercent = 0;
+        $('#apply-coupon').prop('disabled', false).text('Apply Coupon');
+    }
+
+    // Prevent a payment starting while a voucher is still being checked.
+    function guardCoupon(event) {
+        if (couponPending || couponRejected) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (couponPending) $('#coupon-message').text('Please wait while we check your discount.');
+            else $('#coupon-message').text('Please retry or remove the voucher before booking.');
+        }
+    }
+    document.getElementById('booking-form')?.addEventListener('submit', guardCoupon, true);
+    document.getElementById('submit-payment')?.addEventListener('click', guardCoupon, true);
 
     function calculateAndDisplayTotal() {
         var finalTotal = 0;
         
         if (basePrice > 0) {
-            var subtotal = basePrice * ticketCount;
+            // Round the final payable amount in cents, matching the server's Stripe amount.
+            var subtotalCents = Math.round(basePrice * 100) * ticketCount;
+            var totalCents = couponApplied ? Math.round(subtotalCents * (100 - discountPercent) / 100) : subtotalCents;
+            var subtotal = subtotalCents / 100;
             var discountAmount = 0;
             
             if (couponApplied) {
-                discountAmount = subtotal * (discountPercent / 100);
+                discountAmount = (subtotalCents - totalCents) / 100;
                 $('#discount-line').show();
                 $('#discount').text(discountAmount.toFixed(2));
             } else {
                 $('#discount-line').hide();
             }
 
-            finalTotal = subtotal - discountAmount;
+            finalTotal = totalCents / 100;
 
             $('#subtotal').text(subtotal.toFixed(2));
             $('#total').text(finalTotal.toFixed(2));
@@ -57,13 +98,16 @@ jQuery(document).ready(function($) {
         }
 
         // Reset coupon when event changes
-        couponApplied = false;
-        discountPercent = 0;
+        resetCoupon();
         $('#coupon_code').val('');
         $('#coupon-message').text('');
 
 
         calculateAndDisplayTotal();
+        if (linkedCode && $(this).val()) {
+            $('#coupon_code').val(linkedCode);
+            $('#apply-coupon').trigger('click');
+        }
     });
 
     // When the number of tickets changes
@@ -73,6 +117,16 @@ jQuery(document).ready(function($) {
     });
 
     // Handle Apply Coupon button click
+    $('#coupon_code').on('input', function() {
+        resetCoupon();
+        if (linkedCode && $(this).val().trim() !== linkedCode) {
+            linkedCode = '';
+            window.ppDiscountLink.clear();
+            if (voucherNotice) voucherNotice.remove();
+        }
+        $('#coupon-message').text('');
+        calculateAndDisplayTotal();
+    });
     $('#apply-coupon').on('click', function() {
         var couponCode = $('#coupon_code').val().trim();
         var applyButton = $(this);
@@ -86,6 +140,9 @@ jQuery(document).ready(function($) {
             return;
         }
         
+        var sequence = ++couponSequence;
+        couponPending = true;
+        couponRejected = false;
         applyButton.prop('disabled', true).text('Applying...');
         $('#coupon-message').text('');
 
@@ -98,24 +155,30 @@ jQuery(document).ready(function($) {
                 coupon_code: couponCode
             },
             success: function(response) {
+                if (sequence !== couponSequence) return;
                 if (response.success) {
                     discountPercent = parseFloat(response.data.discount_percent);
                     couponApplied = true;
                     calculateAndDisplayTotal(); // This will show the updated price and success message
                 } else {
+                    couponRejected = true;
                     couponApplied = false;
                     discountPercent = 0;
-                    $('#coupon-message').html('<span style="color: red;">' + response.data.message + '</span>');
+                    $('#coupon-message').text(response.data.message);
                     calculateAndDisplayTotal(); // Recalculate to remove any previous discount
                 }
             },
             error: function() {
+                if (sequence !== couponSequence) return;
+                couponRejected = true;
                 couponApplied = false;
                 discountPercent = 0;
                 $('#coupon-message').html('<span style="color: red;">An error occurred. Please try again.</span>');
                 calculateAndDisplayTotal(); // Recalculate to remove any previous discount
             },
             complete: function() {
+                if (sequence !== couponSequence) return;
+                couponPending = false;
                 applyButton.prop('disabled', false).text('Apply Coupon');
             }
         });
@@ -126,4 +189,14 @@ jQuery(document).ready(function($) {
     
     // Initial state
     calculateAndDisplayTotal();
+    // Preserve the live site's quest selection from Upcoming Adventures links.
+    var requestedEventId = new URLSearchParams(window.location.search).get('event_id');
+    var eventSelect = document.getElementById('event_id');
+    if (eventSelect && requestedEventId && /^\d+$/.test(requestedEventId)) {
+        var matchingOption = Array.from(eventSelect.options).find(function(option) {
+            return option.value === requestedEventId && !option.disabled;
+        });
+        if (matchingOption) $(eventSelect).val(requestedEventId);
+    }
+    if ($('#event_id').val()) $('#event_id').trigger('change');
 });

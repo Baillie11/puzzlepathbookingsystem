@@ -1,0 +1,92 @@
+{
+  "brochureImages": "Cover/back and an unaltered logo crop from the approved final PDF only",
+  "cleanPhotographyPending": false,
+  "designReference": "Puzzle_Path_DL_Brochure_Final_Attraction_Update.pdf",
+  "verifiedOn": "2026-10-17",
+  "questArtwork": [
+    {
+      "eventId": 23,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788231257-jj7KIQOV.png",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788231257-jj7KIQOV.png",
+      "prepared800Sha256": "9f5a00a7681d9ec42d05ce7f9fdf117f7f1fbc3e3007290b549a64bfee87c22d"
+    },
+    {
+      "eventId": 9,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1760156463-GiAeODBa.webp",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1760156463-GiAeODBa.webp",
+      "prepared800Sha256": "7a62cafc3f4c6b14f0a9d29ca015a1fcf44be5895c2d1c539ffe4d7abc4d36f5"
+    },
+    {
+      "eventId": 16,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788232623-JpyDh6h8.png",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788232623-JpyDh6h8.png",
+      "prepared800Sha256": "63969ee7aa5f0af9f5fd89349ed32680cf5e6490988324d01a92a8100e23b763"
+    },
+    {
+      "eventId": 22,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1779403658-Uc8TcmUY.png",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1779403658-Uc8TcmUY.png",
+      "prepared800Sha256": "91cc559df592f4170ce5411e141a211f16de3d1af757dd8657dab4b00d313f67"
+    },
+    {
+      "eventId": 20,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788234050-RsLgH2cp.png",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788234050-RsLgH2cp.png",
+      "prepared800Sha256": "cc2cb2ca6411df7500271fb6cfd608e6575b4a9d673004b4f503bc1ce8c3f9dd"
+    },
+    {
+      "eventId": 10,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788234575-maLYwP02.png",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788234575-maLYwP02.png",
+      "prepared800Sha256": "2d4f6f4bbe9ed9903fa448e87c10679bd52311ef4200ac6b03688ac15d20aabf"
+    },
+    {
+      "eventId": 19,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788235576-HKudWAld.png",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788235576-HKudWAld.png",
+      "prepared800Sha256": "16493076589836ba22d069864914219f1a7a7584380bd89a0afbab6c651c0911"
+    },
+    {
+      "eventId": 11,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788237084-NHDfycQq.png",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788237084-NHDfycQq.png",
+      "prepared800Sha256": "a208705a519256f8c9b7f50c25a27459443534c47e5b82e1e84eefb9fea762f1"
+    },
+    {
+      "eventId": 21,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788238170-Fivce3Dl.png",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788238170-Fivce3Dl.png",
+      "prepared800Sha256": "e861a1a9b858238076296a1f1c9c909e1f6092a26e5862e09948e8bd58c7fa6b"
+    },
+    {
+      "eventId": 15,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788256985-0YsVPDl1.png",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788256985-0YsVPDl1.png",
+      "prepared800Sha256": "5e8a7f5231969e070675dde6b78f1d540e476b96d080bc728840c1a2df3c2543"
+    },
+    {
+      "eventId": 12,
+      "source": "https://puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788257585-yfoPLZFI.png",
+      "downloadUrl": "https://www.puzzlepath.com.au/wp-content/uploads/puzzlepath-quests/quest-1788257585-yfoPLZFI.png",
+      "prepared800Sha256": "840a5580f849b6988b0d2207c25d617b3f60fcc43e324f6896e9c59e78983fc5"
+    }
+  ],
+  "lifestylePhotography": [
+    {
+      "name": "lifestyle-waterfront",
+      "source": "https://www.puzzlepath.com.au/wp-content/uploads/2025/05/pexels-kampus-8777830-scaled.jpg",
+      "sourceSha256": "49568fb94a0dccec24e601b14291d3ab86ad38ea5af1f596a74c3cb67bdb9eee",
+      "usage": "Existing Puzzle Path website marketing photography",
+      "actualCustomersOrGoldCoastLocationVerified": false,
+      "rightsRecord": "Owner to retain/confirm original existing-site rights records before public launch"
+    },
+    {
+      "name": "lifestyle-discovery",
+      "source": "https://www.puzzlepath.com.au/wp-content/uploads/2025/05/pexels-alteredsnaps-15807349.jpg",
+      "sourceSha256": "52e74c4ca294b016b382e9117e16d5f6fd7ebf6618cc8b1ba1cdde91328cb2f2",
+      "usage": "Existing Puzzle Path website marketing photography",
+      "actualCustomersOrGoldCoastLocationVerified": false,
+      "rightsRecord": "Owner to retain/confirm original existing-site rights records before public launch"
+    }
+  ]
+}

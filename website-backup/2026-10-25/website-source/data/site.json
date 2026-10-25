@@ -1,0 +1,21 @@
+{
+  "region": "Gold Coast",
+  "heroIntro": "Explore hidden gems, solve puzzles and discover the Gold Coast with Puzzle Path's family-friendly scavenger hunts.",
+  "title": "Your next adventure starts here | Puzzle Path",
+  "description": "Discover the Gold Coast, one clue at a time. Explore Puzzle Path scavenger hunts for up to five people and use your exclusive brochure offer.",
+  "url": "https://puzzlepath.com.au/brochure/",
+  "footerDiscovery": "Discover the coast.",
+  "questIds": null,
+  "heroImage": {
+    "base": "lifestyle-waterfront",
+    "alt": "Friends laughing together on a sunny waterfront boardwalk",
+    "width": 1200,
+    "height": 801
+  },
+  "togetherImage": {
+    "base": "lifestyle-discovery",
+    "alt": "Friends exploring a leafy park, with one person looking at a phone",
+    "width": 1200,
+    "height": 800
+  }
+}

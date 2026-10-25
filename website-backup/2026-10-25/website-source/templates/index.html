@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{META_DESCRIPTION}}">
+  <meta name="theme-color" content="#075559">
+  <meta name="robots" content="noindex, follow">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>{{PAGE_TITLE}}</title>
+  <link rel="canonical" href="{{PAGE_URL}}">
+  <meta property="og:title" content="Your next adventure starts here!">
+  <meta property="og:description" content="{{META_DESCRIPTION}}">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="{{PAGE_URL}}">
+  <meta property="og:image" content="{{SHARE_IMAGE_URL}}">
+  <link rel="icon" href="assets/images/puzzlepath-logo-140.webp" type="image/webp">
+  <link rel="stylesheet" href="assets/css/styles.css">
+  <link rel="stylesheet" href="assets/css/adventure.css">
+  <script src="assets/js/main.js" defer></script>
+  <script src="assets/js/adventure.js" defer></script>
+  <script src="assets/js/postcards.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to adventures and offers</a>
+  <div class="offer-bar">A little brochure. A big adventure. <a href="#offer">YOUR {{DISCOUNT}}% OFF IS HERE <span aria-hidden="true">↓</span></a></div>
+  <header class="site-header site-header--compact wrap">
+    <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a class="nav-cta" href="#adventures">Find your adventure <span aria-hidden="true">↗</span></a></nav>
+  </header>
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-heading">
+      <div class="hero-copy">
+        <h1 id="hero-heading">YOUR NEXT<br>ADVENTURE<br><span>STARTS HERE!</span></h1>
+        <p class="hero-intro">{{HERO_INTRO}}</p>
+        <a class="button" href="#adventures">EXPLORE YOUR ADVENTURES <span aria-hidden="true">↗</span></a>
+        <p class="hero-note">One group. Up to five explorers. Endless fun.</p>
+        <div class="hero-details"><span>Self-guided</span><span>No app to download</span><span>Made for memories</span></div>
+      </div>
+      <div class="hero-visual">
+        {{HERO_PHOTO}}
+        <span class="photo-label"><span class="little-pin" aria-hidden="true"></span> Your next shared story starts here.</span>
+      </div>
+    </section>
+    <section id="offer" class="offer-section wrap" aria-labelledby="offer-heading">
+      <div class="offer-card">
+        <div class="offer-copy"><p class="eyebrow">JUST FOR OUR BROCHURE EXPLORERS</p><h2 id="offer-heading">YOU'VE UNLOCKED<br><span>{{DISCOUNT}}% OFF!</span></h2><p>Thanks for discovering Puzzle Path! Enjoy {{DISCOUNT}}% off your first scavenger hunt adventure.</p></div>
+        <div class="offer-redemption"><p class="offer-price"><s><span class="sr-only">Standard price </span>{{STANDARD_PRICE}}</s> <strong>{{PROMO_PRICE}}</strong><span>per group of up to {{GROUP_SIZE}} people · AUD</span></p>
+          <div class="coupon-row"><span>YOUR ADVENTURE CODE<br><strong id="coupon-code">{{COUPON}}</strong></span><button class="copy-button" type="button" data-copy-coupon hidden aria-label="Copy coupon code {{COUPON}}">Copy code</button></div>
+          <p class="coupon-help">At checkout, choose your quest, enter <strong>{{COUPON}}</strong> and select <strong>Apply Coupon</strong>. Check your discounted total before paying.</p>
+          <p class="fine-print">Offer subject to coupon eligibility and validation at checkout. Final pricing and availability are confirmed by our booking system.</p>
+          <span id="copy-status" class="sr-only" role="status" aria-live="polite"></span>
+        </div>
+      </div>
+    </section>
+    <section id="adventures" class="adventures-section wrap section" aria-labelledby="adventures-heading">
+      <div class="section-heading"><div><p class="eyebrow">FIND YOUR KIND OF FUN</p><h2 id="adventures-heading">CHOOSE YOUR<br><span>ADVENTURE.</span></h2></div><p>Familiar places. Unexpected discoveries.<br>Pick a path and let curiosity lead the way.</p></div>
+      <p class="catalogue-note">One booking covers a group of up to {{GROUP_SIZE}} people. Choose <strong>1 quest</strong> at checkout for one group, not five individual tickets. Use <strong>{{COUPON}}</strong> for the brochure price shown.</p>
+      <div class="quest-grid">
+        {{QUEST_CARDS}}
+      </div>
+      <p class="catalogue-footer">Availability can change. <a href="https://puzzlepath.com.au/puzzle-path-upcoming-adventures/">See the latest adventures on our main website <span aria-hidden="true">↗</span></a></p>
+    </section>
+    <section id="how-it-works" class="how-section section" aria-labelledby="how-heading">
+      <div class="wrap"><div class="center-heading"><p class="eyebrow">BIG ADVENTURES. LITTLE EFFORT.</p><h2 id="how-heading">CHOOSE. PLAY. CELEBRATE.</h2><p>Just bring your phone and your sense of adventure.<br><strong>No separate app download needed.</strong></p></div>
+        <ol class="steps">
+          <li><span class="step-number" aria-hidden="true">01 <span>↗</span></span><h3>CHOOSE</h3><p>Choose a scavenger hunt that interests you. Book for your group through our secure booking page.</p></li>
+          <li><span class="step-number" aria-hidden="true">02 <span>⌕</span></span><h3>PLAY</h3><p>Follow the clues on your phone, discover interesting places and complete fun challenges.</p></li>
+          <li><span class="step-number" aria-hidden="true">03 <span>⚑</span></span><h3>CELEBRATE</h3><p>Finish your adventure, collect digital badges and enjoy available rewards. Rewards vary by quest.</p></li>
+        </ol>
+      </div>
+    </section>
+    <section class="why-section wrap section" aria-labelledby="why-heading">
+      <div class="why-photo">{{TOGETHER_PHOTO}}<span>A little curiosity goes a long way.</span></div>
+      <div class="why-copy"><p class="eyebrow">LESS ORDINARY. MORE TOGETHER.</p><h2 id="why-heading">GOOD TIMES.<br><span>GREAT COMPANY.</span></h2><p>For families, couples and friends who'd rather make memories than more plans.</p>
+        <ul class="benefits"><li>Affordable adventures for the whole group</li><li>Up to {{GROUP_SIZE}} people, one group price</li><li>Fun challenges and unexpected discoveries</li><li>Self-guided, with flexible start times</li><li>Digital badges and available quest rewards</li></ul>
+        <a class="text-link" href="#adventures">Find your next shared story <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+    <section class="final-section" aria-labelledby="final-heading"><div class="wrap"><p class="eyebrow">THE BEST STORIES START WITH “LET'S GO”</p><h2 id="final-heading">READY TO EXPLORE?</h2><p>Your next family adventure is only a few clicks away.</p><a class="button" href="#adventures">CHOOSE YOUR QUEST <span aria-hidden="true">↗</span></a><p class="final-code">Don't forget your adventure code: <strong>{{COUPON}}</strong></p></div></section>
+  </main>
+  <footer class="site-footer wrap"><a class="footer-brand" href="https://puzzlepath.com.au/"><img src="assets/images/puzzlepath-logo-140.webp" width="64" height="64" loading="lazy" alt="Puzzle Path"><span>{{FOOTER_DISCOVERY}}<br>One clue at a time.</span></a><div><a class="footer-url" href="https://puzzlepath.com.au/">www.puzzlepath.com.au</a><p>© 2026 Puzzle Path Scavenger Hunts. All prices in AUD.</p><a href="privacy.html">Campaign privacy information</a></div></footer>
+</body>
+</html>

@@ -1,0 +1,276 @@
+{
+  "campaign": "brochure_dl_2026",
+  "currency": "AUD",
+  "standardPriceCents": 1995,
+  "discountPercent": 25,
+  "coupon": "BROCHURE25",
+  "couponValidated": false,
+  "couponAutoApplyVerified": false,
+  "groupSize": 5,
+  "quests": [
+    {
+      "eventId": 12,
+      "title": "Surfers Paradise Explorer Quest",
+      "location": "2 Esplanade, Surfers Paradise QLD 4217",
+      "description": "Discover 2 Esplanade on a walking Puzzle Path quest.",
+      "mode": "Walking",
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=12",
+      "images": [
+        {
+          "path": "assets/images/quest-12-400.webp",
+          "width": 400,
+          "height": 300
+        },
+        {
+          "path": "assets/images/quest-12-800.webp",
+          "width": 800,
+          "height": 600
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Surfers Paradise Explorer Quest",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    },
+    {
+      "eventId": 10,
+      "title": "Emerald Lakes Explorer Quest",
+      "location": "Emerald Lakes, Carrara, Gold Coast, Australia",
+      "description": "Discover Emerald Lakes on a walking Puzzle Path quest.",
+      "mode": "Walking",
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=10",
+      "images": [
+        {
+          "path": "assets/images/quest-10-400.webp",
+          "width": 400,
+          "height": 267
+        },
+        {
+          "path": "assets/images/quest-10-800.webp",
+          "width": 800,
+          "height": 533
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Emerald Lakes Explorer Quest",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    },
+    {
+      "eventId": 9,
+      "title": "Broadbeach Adventurer Quest",
+      "location": "Broadbeach, Gold Coast, Australia",
+      "description": "Discover Broadbeach on a walking Puzzle Path quest.",
+      "mode": "Walking",
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=9",
+      "images": [
+        {
+          "path": "assets/images/quest-9-400.webp",
+          "width": 400,
+          "height": 266
+        },
+        {
+          "path": "assets/images/quest-9-800.webp",
+          "width": 800,
+          "height": 532
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Broadbeach Adventurer Quest",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    },
+    {
+      "eventId": 23,
+      "title": "Bribie Island Drive Quest",
+      "location": "459 Pumicestone Rd, Caboolture, Queensland",
+      "description": "Discover 459 Pumicestone Rd on a self-guided Puzzle Path quest.",
+      "mode": null,
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=23",
+      "images": [
+        {
+          "path": "assets/images/quest-23-400.webp",
+          "width": 400,
+          "height": 267
+        },
+        {
+          "path": "assets/images/quest-23-800.webp",
+          "width": 800,
+          "height": 533
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Bribie Island Drive Quest",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    },
+    {
+      "eventId": 16,
+      "title": "Coolangatta Walking Quest",
+      "location": "Coolangatta, Gold Coast, Australia",
+      "description": "Discover Coolangatta on a walking Puzzle Path quest.",
+      "mode": "Walking",
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=16",
+      "images": [
+        {
+          "path": "assets/images/quest-16-400.webp",
+          "width": 400,
+          "height": 267
+        },
+        {
+          "path": "assets/images/quest-16-800.webp",
+          "width": 800,
+          "height": 533
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Coolangatta Walking Quest",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    },
+    {
+      "eventId": 22,
+      "title": "Coomera Cruise & Tunes",
+      "location": "Coomera to Southport, Gold Coast QLD",
+      "description": "Discover Coomera to Southport on a self-guided Puzzle Path quest.",
+      "mode": null,
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=22",
+      "images": [
+        {
+          "path": "assets/images/quest-22-400.webp",
+          "width": 400,
+          "height": 267
+        },
+        {
+          "path": "assets/images/quest-22-800.webp",
+          "width": 800,
+          "height": 533
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Coomera Cruise & Tunes",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    },
+    {
+      "eventId": 20,
+      "title": "Currumbin Rockpools Quest",
+      "location": "Currumbin Valley, Gold Coast, Australia",
+      "description": "Discover Currumbin Valley on a walking Puzzle Path quest.",
+      "mode": "Walking",
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=20",
+      "images": [
+        {
+          "path": "assets/images/quest-20-400.webp",
+          "width": 400,
+          "height": 267
+        },
+        {
+          "path": "assets/images/quest-20-800.webp",
+          "width": 800,
+          "height": 533
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Currumbin Rockpools Quest",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    },
+    {
+      "eventId": 19,
+      "title": "Hinterland Hideaway Quest",
+      "location": "Gold Coast Hinterland, Queensland, Australia",
+      "description": "Discover Gold Coast Hinterland on a walking Puzzle Path quest.",
+      "mode": "Walking",
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=19",
+      "images": [
+        {
+          "path": "assets/images/quest-19-400.webp",
+          "width": 400,
+          "height": 267
+        },
+        {
+          "path": "assets/images/quest-19-800.webp",
+          "width": 800,
+          "height": 533
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Hinterland Hideaway Quest",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    },
+    {
+      "eventId": 11,
+      "title": "Koala Trail Driving Quest",
+      "location": "Gold Coast, Queensland, Australia",
+      "description": "Discover Gold Coast on a self-guided Puzzle Path quest.",
+      "mode": null,
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=11",
+      "images": [
+        {
+          "path": "assets/images/quest-11-400.webp",
+          "width": 400,
+          "height": 400
+        },
+        {
+          "path": "assets/images/quest-11-800.webp",
+          "width": 800,
+          "height": 800
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Koala Trail Driving Quest",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    },
+    {
+      "eventId": 21,
+      "title": "Southport Rockpools Walking Quest",
+      "location": "Southport, Gold Coast, Australia",
+      "description": "Discover Southport on a walking Puzzle Path quest.",
+      "mode": "Walking",
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=21",
+      "images": [
+        {
+          "path": "assets/images/quest-21-400.webp",
+          "width": 400,
+          "height": 400
+        },
+        {
+          "path": "assets/images/quest-21-800.webp",
+          "width": 800,
+          "height": 800
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Southport Rockpools Walking Quest",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    },
+    {
+      "eventId": 15,
+      "title": "Springbrook Alpaca Adventure",
+      "location": "Springbrook, Gold Coast Hinterland, Australia",
+      "description": "Discover Springbrook on a walking Puzzle Path quest.",
+      "mode": "Walking",
+      "durationMinutes": null,
+      "bookingUrl": "https://puzzlepath.com.au/book-today/?event_id=15",
+      "images": [
+        {
+          "path": "assets/images/quest-15-400.webp",
+          "width": 400,
+          "height": 400
+        },
+        {
+          "path": "assets/images/quest-15-800.webp",
+          "width": 800,
+          "height": 800
+        }
+      ],
+      "imageAlt": "Puzzle Path cover artwork for Springbrook Alpaca Adventure",
+      "verifiedOn": "2026-10-17",
+      "sourceUrl": "https://puzzlepath.com.au/puzzle-path-upcoming-adventures/"
+    }
+  ]
+}

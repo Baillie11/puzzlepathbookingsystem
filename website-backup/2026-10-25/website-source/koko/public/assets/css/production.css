@@ -1,0 +1,8 @@
+.trail{z-index:3;pointer-events:none}.island-group,.koko-stop{z-index:1}
+.journey-paw{visibility:hidden}.journey-paw.revealed{visibility:visible;animation:paw-arrive .32s ease-out both}
+@keyframes paw-arrive{from{opacity:0}to{opacity:.56}}
+.status-message{max-width:700px;margin:18px auto;padding:16px 20px;background:#f2dfab;border-radius:16px;font-size:14px}
+.checkout-preview{max-width:660px;padding:60px 24px}.checkout-preview h1{font-size:42px}.checkout-preview dl{padding:24px;background:#f2dfab;border-radius:22px}.checkout-preview dt{font-weight:bold;margin-top:15px}.checkout-preview dd{margin:5px 0}.preview-total{font-size:36px;font-weight:bold}
+.island-content{overflow-wrap:break-word}.group-three{margin-bottom:65px}
+@media(max-width:400px){.island h3,.group-three h3{font-size:21px}.island p,.group-three .island p{font-size:12px}.island .button{padding:12px 17px;gap:12px}.group-three .shape-4 h3{font-size:20px}.hero h1{font-size:53px}.koko-greeting{right:-14px}.price strong{font-size:34px}.group-three{margin-bottom:0}}
+@media(prefers-reduced-motion:reduce){.journey-paw{visibility:visible;animation:none!important}}
